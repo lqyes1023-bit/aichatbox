@@ -29,19 +29,42 @@ def send_message():
             max_tokens=150,
             temperature=0.8,
             messages=[{
-                "role": "user", 
+                "role": "user",
                 "content": random.choice(prompts) + f" 当前时间: {datetime.now().strftime('%H:%M')}"
             }]
         )
+
         message = response.content[0].text.strip()
-        bot.send_message(chat_id=CHAT_ID, text=message)
+
+        bot.send_message(
+            chat_id=CHAT_ID,
+            text=message
+        )
+
         return f"✅ 已发送: {message}", 200
+
     except Exception as e:
         return f"错误: {str(e)}", 500
 
+
 @app.route('/')
 def home():
-    return "AI 暖心伴侣 (Claude) 运行中～ ❤️"
+    try:
+        models = client.models.list()
+
+        result = []
+
+        for model in models.data:
+            result.append(model.id)
+
+        return "<br>".join(result)
+
+    except Exception as e:
+        return str(e)
+
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    app.run(
+        host='0.0.0.0',
+        port=int(os.environ.get('PORT', 8080))
+    )
