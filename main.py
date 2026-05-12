@@ -9,12 +9,12 @@ app = Flask(__name__)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
-# ⚠️ CHAT_ID 不再需要（webhook模式自动获取）
+# ===== 初始化 =====
 bot = Bot(token=TELEGRAM_TOKEN)
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
-# ===== Claude回复函数 =====
+# ===== Claude =====
 def ask_claude(text):
     response = client.messages.create(
         model="claude-sonnet-4-6",
@@ -27,39 +27,52 @@ def ask_claude(text):
     return response.content[0].text.strip()
 
 
-# ===== Telegram webhook入口 =====
+# ===== Telegram webhook =====
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
-        data = request.get_json()
-        print("📩 RAW:", data)
+        data = request.get_json(force=True)
+        print("🔥 RAW:", data)
 
         message = data.get("message", {})
         text = message.get("text")
         chat_id = message.get("chat", {}).get("id")
 
-        print("💬 TEXT:", text)
+        print("💬 TEXT:", repr(text))
         print("🆔 CHAT_ID:", chat_id)
 
+        # 👉 防止空消息
         if not text or not chat_id:
-            return "no message", 200
+            print("⚠️ empty message")
+            return "no text", 200
 
-        # 👉 调 Claude
-        reply = ask_claude(text)
+        # ===== Claude =====
+        try:
+            reply = ask_claude(text)
+            print("🤖 CLAUDE OK:", reply)
+        except Exception as e:
+            print("❌ CLAUDE ERROR:", str(e))
+            return f"claude error: {e}", 500
 
-        print("🤖 REPLY:", reply)
-
-        # 👉 回 Telegram
-        bot.send_message(chat_id=chat_id, text=reply)
+        # ===== Telegram =====
+        try:
+            result = bot.send_message(
+                chat_id=chat_id,
+                text=reply
+            )
+            print("📨 TELEGRAM OK:", result)
+        except Exception as e:
+            print("❌ TELEGRAM ERROR:", str(e))
+            return f"telegram error: {e}", 500
 
         return "OK", 200
 
     except Exception as e:
-        print("❌ ERROR:", str(e))
+        print("❌ GLOBAL ERROR:", str(e))
         return str(e), 500
 
 
-# ===== 测试页面 =====
+# ===== health check =====
 @app.route('/')
 def home():
     return "Claude Telegram Bot Running ❤️"
