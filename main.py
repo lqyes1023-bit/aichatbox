@@ -12,6 +12,16 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
+# ===== 基础检查（防止静默失败）=====
+if not TELEGRAM_TOKEN:
+    print("❌ TELEGRAM_TOKEN 未设置")
+
+if not CHAT_ID:
+    print("❌ CHAT_ID 未设置")
+
+if not ANTHROPIC_API_KEY:
+    print("❌ ANTHROPIC_API_KEY 未设置")
+
 # ===== 客户端 =====
 bot = Bot(token=TELEGRAM_TOKEN)
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -24,7 +34,7 @@ prompts = [
     "写一条'有点想你啦'的感觉，温暖、真诚，不要太夸张。"
 ]
 
-# ===== 主功能：Claude + Telegram =====
+# ===== Claude + Telegram =====
 @app.route('/send', methods=['GET', 'POST'])
 def send_message():
     try:
@@ -40,34 +50,40 @@ def send_message():
 
         message = response.content[0].text.strip()
 
-        bot.send_message(
+        # 👉 Telegram发送 + 打印返回值（关键调试）
+        result = bot.send_message(
             chat_id=CHAT_ID,
             text=message
         )
 
+        print("📨 Telegram response:", result)
+
         return f"✅ 已发送: {message}", 200
 
     except Exception as e:
+        print("❌ ERROR:", str(e))
         return f"错误: {str(e)}", 500
 
 
-# ===== 测试 Telegram =====
+# ===== Telegram测试 =====
 @app.route('/test')
 def test_telegram():
     try:
-        bot.send_message(
+        result = bot.send_message(
             chat_id=CHAT_ID,
             text="👋 Telegram测试成功"
         )
-        return "OK"
+        print("📨 TEST response:", result)
+        return "OK", 200
     except Exception as e:
-        return str(e)
+        print("❌ TEST ERROR:", str(e))
+        return str(e), 500
 
 
-# ===== 健康检查 / 模型查看 =====
+# ===== 健康检查 =====
 @app.route('/')
 def home():
-    return "AI Bot 运行中 ❤️"
+    return "AI Bot 运行中 ❤️ /send /test 可用"
 
 
 # ===== 启动 =====
