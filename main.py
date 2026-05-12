@@ -30,47 +30,46 @@ def ask_claude(text):
 # ===== Telegram webhook =====
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    try:
-        data = request.get_json(force=True)
-        print("🔥 RAW:", data)
+    data = request.get_json(force=True)
+    print("🔥 RAW:", data)
 
+    try:
         message = data.get("message", {})
         text = message.get("text")
         chat_id = message.get("chat", {}).get("id")
 
-        print("💬 TEXT:", repr(text))
+        print("💬 TEXT:", text)
         print("🆔 CHAT_ID:", chat_id)
-
-        # 👉 防止空消息
-        if not text or not chat_id:
-            print("⚠️ empty message")
-            return "no text", 200
 
         # ===== Claude =====
         try:
-            reply = ask_claude(text)
-            print("🤖 CLAUDE OK:", reply)
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=200,
+                messages=[{
+                    "role": "user",
+                    "content": text
+                }]
+            )
+            reply = response.content[0].text.strip()
+            print("🤖 CLAUDE OK")
         except Exception as e:
-            print("❌ CLAUDE ERROR:", str(e))
-            return f"claude error: {e}", 500
+            print("❌ CLAUDE FAIL:", str(e))
+            return f"claude error: {str(e)}", 500
 
         # ===== Telegram =====
         try:
-            result = bot.send_message(
-                chat_id=chat_id,
-                text=reply
-            )
-            print("📨 TELEGRAM OK:", result)
+            result = bot.send_message(chat_id=chat_id, text=reply)
+            print("📨 TG OK:", result)
         except Exception as e:
-            print("❌ TELEGRAM ERROR:", str(e))
-            return f"telegram error: {e}", 500
+            print("❌ TG FAIL:", str(e))
+            return f"telegram error: {str(e)}", 500
 
         return "OK", 200
 
     except Exception as e:
-        print("❌ GLOBAL ERROR:", str(e))
+        print("❌ GLOBAL FAIL:", str(e))
         return str(e), 500
-
 
 # ===== health check =====
 @app.route('/')
