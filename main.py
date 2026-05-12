@@ -7,13 +7,16 @@ from anthropic import Anthropic
 
 app = Flask(__name__)
 
+# ===== 环境变量 =====
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
+# ===== 客户端 =====
 bot = Bot(token=TELEGRAM_TOKEN)
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
+# ===== Prompt =====
 prompts = [
     "用温柔甜蜜但自然的语气，生成一条今天想念对方的短消息（50字以内），可以带一点今天的心情或小想法。",
     "像贴心伴侣一样，说一句想你、关心对方日常的话，文艺细腻一点。",
@@ -21,6 +24,7 @@ prompts = [
     "写一条'有点想你啦'的感觉，温暖、真诚，不要太夸张。"
 ]
 
+# ===== 主功能：Claude + Telegram =====
 @app.route('/send', methods=['GET', 'POST'])
 def send_message():
     try:
@@ -47,22 +51,26 @@ def send_message():
         return f"错误: {str(e)}", 500
 
 
-@app.route('/')
-def home():
+# ===== 测试 Telegram =====
+@app.route('/test')
+def test_telegram():
     try:
-        models = client.models.list()
-
-        result = []
-
-        for model in models.data:
-            result.append(model.id)
-
-        return "<br>".join(result)
-
+        bot.send_message(
+            chat_id=CHAT_ID,
+            text="👋 Telegram测试成功"
+        )
+        return "OK"
     except Exception as e:
         return str(e)
 
 
+# ===== 健康检查 / 模型查看 =====
+@app.route('/')
+def home():
+    return "AI Bot 运行中 ❤️"
+
+
+# ===== 启动 =====
 if __name__ == "__main__":
     app.run(
         host='0.0.0.0',
