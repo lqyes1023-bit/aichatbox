@@ -25,7 +25,7 @@ prompts = [
 def send_message():
     try:
         response = client.messages.create(
-            model="claude-3-7-sonnet",
+            model="claude-3-5-haiku-latest",
             max_tokens=150,
             temperature=0.8,
             messages=[{
