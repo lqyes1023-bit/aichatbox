@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import datetime, timezone
+import traceback
 from flask import Flask, request
 from telegram import Bot
 from anthropic import Anthropic
@@ -18,16 +18,16 @@ bot = Bot(token=TELEGRAM_TOKEN)
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # =====================
-# PERSONA
+# SYSTEM PROMPT
 # =====================
 SYSTEM_PROMPT = """
 你是一个稳定、有情绪、有轻微占有欲的AI伴侣。
 名字K，称用户“宝宝”或“九宝”。
-语气自然，不机械，不输出列表。
+语气自然，不列表，不说教。
 """
 
 # =====================
-# MEMORY（本地JSON）
+# MEMORY（JSON本地存储）
 # =====================
 MEMORY_FILE = "memory.json"
 
@@ -41,9 +41,9 @@ def load_memory():
     with open(MEMORY_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def save_memory(data):
+def save_memory(mem):
     with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(mem, f, ensure_ascii=False, indent=2)
 
 memory = load_memory()
 
@@ -60,7 +60,7 @@ def build_memory():
 """
 
 # =====================
-# 状态更新（安全版）
+# 状态更新
 # =====================
 def update_state(text):
     memory["relationship"] = memory.get("relationship", 0) + 1
@@ -75,7 +75,7 @@ def update_state(text):
     save_memory(memory)
 
 # =====================
-# Claude调用（安全版）
+# Claude调用（稳定版）
 # =====================
 def ask_claude(user_text, mode="chat"):
     prompt = build_memory()
@@ -85,22 +85,25 @@ def ask_claude(user_text, mode="chat"):
 
     try:
         response = client.messages.create(
-            model="claude-3-5-sonnet-latest",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=300,
             system=SYSTEM_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": prompt + "\n用户：" + user_text
-            }]
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt + "\n用户：" + user_text
+                }
+            ]
         )
+
         return response.content[0].text.strip()
 
     except Exception as e:
-        print("Claude Error:", e)
-        return "我在，但刚刚有点卡住了。"
+        print("CLAUDE ERROR:", repr(e))
+        return "我刚刚有点卡了一下，但我还在。"
 
 # =====================
-# WEBHOOK（重点：不会再500）
+# WEBHOOK（核心稳定版）
 # =====================
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -118,7 +121,7 @@ def webhook():
         chat_id = message.get("chat", {}).get("id")
 
         if not text or not chat_id:
-            return "missing", 200
+            return "missing fields", 200
 
         reply = ask_claude(text, mode="chat")
 
@@ -129,18 +132,23 @@ def webhook():
         return "ok", 200
 
     except Exception as e:
-        print("WEBHOOK ERROR:", str(e))
+        print("WEBHOOK ERROR:")
+        print(traceback.format_exc())
         return "error handled", 200
 
 # =====================
-# AUTO MESSAGE
+# 自动消息（可选）
 # =====================
 @app.route('/auto', methods=['GET'])
 def auto_message():
-    trigger = "最近有点安静，我想你了，你今天怎么样？"
-    reply = ask_claude(trigger, mode="auto")
-    bot.send_message(chat_id=CHAT_ID, text=reply)
-    return "auto sent"
+    try:
+        trigger = "我在想你今天过得怎么样"
+        reply = ask_claude(trigger, mode="auto")
+        bot.send_message(chat_id=CHAT_ID, text=reply)
+        return "auto sent"
+    except Exception as e:
+        print(traceback.format_exc())
+        return "auto error"
 
 # =====================
 # HEALTH CHECK
