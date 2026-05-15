@@ -122,38 +122,24 @@ def update_life_log(text):
 # =====================
 @app.route("/webhook", methods=["POST"])
 def webhook():
-
     try:
-
         data = request.get_json()
-
-        print("📩 RAW DATA:", data)
-
         text = data["message"]["text"]
         chat_id = data["message"]["chat"]["id"]
-
-        print("📩 USER:", text)
-
-        update_life_log(text)
-
+        
+        print(f"📩 收到消息: {text}")
+        
         reply = ask_claude(text)
-
-        print("🤖 FINAL:", reply)
-
-        bot.send_message(
-            chat_id=chat_id,
-            text=reply
-        )
-
+        print(f"🤖 Claude 回复: {reply}")
+        
+        bot.send_message(chat_id=chat_id, text=reply)
+        print(f"✅ 消息已发送")
+        
         return "ok", 200
-
     except Exception as e:
-
-        print("🔥 WEBHOOK ERROR:")
+        print(f"❌ 错误: {str(e)}")
         print(traceback.format_exc())
-
         return "ok", 200
-
 # =====================
 # HOME
 # =====================
