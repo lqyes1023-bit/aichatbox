@@ -1,3 +1,4 @@
+
 import os
 import json
 import traceback
@@ -66,7 +67,7 @@ def ask_claude(text):
     try:
 
         response = client.messages.create(
-            model="claude-3-5-haiku-20241022",
+            model="haiku",
             max_tokens=300,
             messages=[
                 {
