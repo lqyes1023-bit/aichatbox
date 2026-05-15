@@ -124,29 +124,27 @@ def update_life_log(text):
 def webhook():
     try:
         data = request.get_json()
+        print("✅ 1. 收到请求")
+        
         text = data["message"]["text"]
         chat_id = data["message"]["chat"]["id"]
+        print(f"✅ 2. 提取消息: {text}")
         
-        print(f"📩 收到消息: {text}")
+        update_life_log(text)
+        print("✅ 3. 更新日志")
         
         reply = ask_claude(text)
-        print(f"🤖 Claude 回复: {reply}")
+        print(f"✅ 4. Claude 回复: {reply}")
         
         bot.send_message(chat_id=chat_id, text=reply)
-        print(f"✅ 消息已发送")
+        print("✅ 5. 消息已发送")
         
         return "ok", 200
+
     except Exception as e:
-        print(f"❌ 错误: {str(e)}")
+        print(f"❌ 错误在第几步: {str(e)}")
         print(traceback.format_exc())
         return "ok", 200
-# =====================
-# HOME
-# =====================
-@app.route("/")
-def home():
-    return "AI Life System Running", 200
-
 # =====================
 # RUN
 # =====================
