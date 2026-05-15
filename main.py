@@ -66,7 +66,7 @@ def ask_claude(text):
     try:
 
         response = client.messages.create(
-            model="haiku",
+            model="claude-sonnet-4-20250514",
             max_tokens=300,
             messages=[
                 {
