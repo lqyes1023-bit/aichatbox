@@ -1,85 +1,22 @@
-import os
-import traceback
-from anthropic import Anthropic
+2026-05-15 21:44:57.632 CEST
+Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
+2026-05-15 21:45:01.736 CEST
+Container called exit(0).
+2026-05-15 21:45:01.813 CEST
+Default STARTUP TCP probe failed 1 time consecutively for container "placeholder-1" on port 8080. The instance was not started. Connection failed with status CANCELLED.
+2026-05-15 21:45:01.826 CEST
 
-# =====================
-# CLIENT
-# =====================
-client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+Cloud Run
 
-# =====================
-# 🔥 只保留“历史上长期稳定模型”
-# （避免所有 404 新模型坑）
-# =====================
-MODEL_POOL = [
-    "claude-3-sonnet-20240229",   # 主力稳定
-    "claude-3-haiku-20240307",    # 备用轻量
-]
+ReplaceService
 
-ACTIVE_MODEL = None
+aichatbox-00035-kjq
+Ready condition status changed to False for Revision aichatbox-00035-kjq with message: The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable within the allocated timeout. This can happen when the container port is misconfigured or if the timeout is too short. The health check timeout can be extended. Logs for this revision might contain more information.  Logs URL: https://console.cloud.google.com/logs/viewer?project=my-project-claude-496115&resource=cloud_run_revision/service_name/aichatbox/revision_name/aichatbox-00035-kjq&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22aichatbox%22%0Aresource.labels.revision_name%3D%22aichatbox-00035-kjq%22  For more troubleshooting guidance, see https://cloud.google.com/run/docs/troubleshooting#container-failed-to-start
+2026-05-15 21:45:01.902 CEST
 
+Cloud Run
 
-# =====================
-# 1. 安全测试模型
-# =====================
-def safe_test(model):
-    try:
-        client.messages.create(
-            model=model,
-            max_tokens=10,
-            messages=[{"role": "user", "content": "ping"}]
-        )
-        print(f"✅ Model OK: {model}")
-        return True
+ReplaceService
 
-    except Exception as e:
-        print(f"❌ Model FAIL: {model} -> {repr(e)}")
-        return False
-
-
-# =====================
-# 2. 自动选择最稳模型（只执行一次）
-# =====================
-def select_model():
-    global ACTIVE_MODEL
-
-    if ACTIVE_MODEL:
-        return ACTIVE_MODEL
-
-    print("🧠 Selecting best available Claude model...")
-
-    for m in MODEL_POOL:
-        if safe_test(m):
-            ACTIVE_MODEL = m
-            print(f"🎯 ACTIVE MODEL LOCKED: {m}")
-            return m
-
-    raise Exception("No usable Claude model for this API key")
-
-
-# =====================
-# 3. 对外唯一入口（不会踩坑）
-# =====================
-def ask_claude(text):
-    try:
-        model = select_model()
-
-        res = client.messages.create(
-            model=model,
-            max_tokens=300,
-            messages=[
-                {
-                    "role": "user",
-                    "content": text
-                }
-            ]
-        )
-
-        return res.content[0].text.strip()
-
-    except Exception as e:
-        print("🔥 RUNTIME ERROR:")
-        print(traceback.format_exc())
-
-        # 永远不炸 webhook
-        return f"我刚刚有点卡住了，但我还在。({repr(e)})"
+aichatbox
+Ready condition status changed to False for Service aichatbox with message: The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable within the allocated timeout. This can happen when the container port is misconfigured or if the timeout is too short. The health check timeout can be extended. Logs for this revision might contain more information.  Logs URL: https://console.cloud.google.com/logs/viewer?project=my-project-claude-496115&resource=cloud_run_revision/service_name/aichatbox/revision_name/aichatbox-00035-kjq&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22aichatbox%22%0Aresource.labels.revision_name%3D%22aichatbox-00035-kjq%22  For more troubleshooting guidance, see https://cloud.google.com/run/docs/troubleshooting#container-failed-to-start
