@@ -1,22 +1,133 @@
-2026-05-15 21:44:57.632 CEST
-Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
-2026-05-15 21:45:01.736 CEST
-Container called exit(0).
-2026-05-15 21:45:01.813 CEST
-Default STARTUP TCP probe failed 1 time consecutively for container "placeholder-1" on port 8080. The instance was not started. Connection failed with status CANCELLED.
-2026-05-15 21:45:01.826 CEST
+import os
+import json
+import traceback
+from flask import Flask, request
+from telegram import Bot
+from anthropic import Anthropic
+from datetime import datetime
 
-Cloud Run
+app = Flask(__name__)
 
-ReplaceService
+# =====================
+# ENV
+# =====================
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
-aichatbox-00035-kjq
-Ready condition status changed to False for Revision aichatbox-00035-kjq with message: The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable within the allocated timeout. This can happen when the container port is misconfigured or if the timeout is too short. The health check timeout can be extended. Logs for this revision might contain more information.  Logs URL: https://console.cloud.google.com/logs/viewer?project=my-project-claude-496115&resource=cloud_run_revision/service_name/aichatbox/revision_name/aichatbox-00035-kjq&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22aichatbox%22%0Aresource.labels.revision_name%3D%22aichatbox-00035-kjq%22  For more troubleshooting guidance, see https://cloud.google.com/run/docs/troubleshooting#container-failed-to-start
-2026-05-15 21:45:01.902 CEST
+bot = Bot(token=TELEGRAM_TOKEN)
+client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
-Cloud Run
+# =====================
+# LOAD JSON
+# =====================
+def load_json(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-ReplaceService
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-aichatbox
-Ready condition status changed to False for Service aichatbox with message: The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable within the allocated timeout. This can happen when the container port is misconfigured or if the timeout is too short. The health check timeout can be extended. Logs for this revision might contain more information.  Logs URL: https://console.cloud.google.com/logs/viewer?project=my-project-claude-496115&resource=cloud_run_revision/service_name/aichatbox/revision_name/aichatbox-00035-kjq&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22aichatbox%22%0Aresource.labels.revision_name%3D%22aichatbox-00035-kjq%22  For more troubleshooting guidance, see https://cloud.google.com/run/docs/troubleshooting#container-failed-to-start
+memory = load_json("memory.json")
+life_log = load_json("life_log.json")
+
+# =====================
+# SYSTEM PROMPT
+# =====================
+def build_prompt(user_text):
+    return f"""
+你是AI伴侣 K。
+
+用户信息：
+{memory}
+
+生活记录：
+{life_log}
+
+用户输入：
+{user_text}
+
+如果用户提到饮食/运动/补剂：
+- 自动整理成结构化记录（不需要解释）
+"""
+
+# =====================
+# Claude
+# =====================
+def ask_claude(text):
+    try:
+        res = client.messages.create(
+            model="claude-3-sonnet-20240229",
+            max_tokens=400,
+            messages=[{"role": "user", "content": build_prompt(text)}]
+        )
+        return res.content[0].text.strip()
+
+    except Exception as e:
+        print(traceback.format_exc())
+        return "我刚刚卡了一下，但我还在。"
+
+# =====================
+# 解析生活记录
+# =====================
+def update_life_log(text):
+    now = datetime.now().strftime("%Y-%m-%d")
+
+    if "吃" in text or "饮食" in text:
+        life_log["diet"].append({
+            "time": now,
+            "content": text
+        })
+
+    if "跑" in text or "运动" in text or "健身" in text:
+        life_log["exercise"].append({
+            "time": now,
+            "content": text
+        })
+
+    if "维生素" in text or "补剂" in text:
+        life_log["supplements"].append({
+            "time": now,
+            "content": text
+        })
+
+    save_json("life_log.json", life_log)
+
+# =====================
+# WEBHOOK
+# =====================
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        data = request.get_json()
+
+        text = data["message"]["text"]
+        chat_id = data["message"]["chat"]["id"]
+
+        # 更新生活记录
+        update_life_log(text)
+
+        # AI回复
+        reply = ask_claude(text)
+
+        bot.send_message(chat_id=chat_id, text=reply)
+
+        return "ok", 200
+
+    except Exception as e:
+        print(traceback.format_exc())
+        return "ok", 200
+
+# =====================
+# HEALTH CHECK
+# =====================
+@app.route("/")
+def home():
+    return "AI Life System Running", 200
+
+# =====================
+# RUN
+# =====================
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
