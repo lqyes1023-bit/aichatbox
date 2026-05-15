@@ -14,16 +14,20 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
+# 防止 Cloud Run 启动直接炸
+if not TELEGRAM_TOKEN or not ANTHROPIC_API_KEY:
+    print("❌ ENV missing: TELEGRAM_TOKEN or ANTHROPIC_API_KEY")
+
 bot = Bot(token=TELEGRAM_TOKEN)
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # =====================
-# SYSTEM PROMPT
+# SYSTEM
 # =====================
 SYSTEM_PROMPT = """
-你是一个有情绪、有陪伴感的AI伴侣。
+你是一个稳定、有情绪、有陪伴感的AI伴侣。
 名字K，称用户“宝宝”。
-语气自然，不说教，不列表。
+语气自然，不列表，不说教。
 """
 
 # =====================
@@ -31,28 +35,45 @@ SYSTEM_PROMPT = """
 # =====================
 MEMORY_FILE = "memory.json"
 
+def default_memory():
+    return {
+        "summary": "用户喜欢绿色、爵士乐，不喝酒，INTJ",
+        "emotion": "calm",
+        "relationship": 5,
+        "diet": [],
+        "exercise": [],
+        "supplements": [],
+        "mood_log": []
+    }
+
 def load_memory():
-    if not os.path.exists(MEMORY_FILE):
-        return {
-            "summary": "用户喜欢绿色、爵士乐，不喝酒，INTJ",
-            "emotion": "calm",
-            "relationship": 5,
-            "diet": [],
-            "exercise": [],
-            "supplements": [],
-            "mood_log": []
-        }
-    with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        if not os.path.exists(MEMORY_FILE):
+            return default_memory()
+
+        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # 防止字段缺失炸掉
+        base = default_memory()
+        base.update(data)
+        return base
+
+    except Exception as e:
+        print("MEMORY LOAD ERROR:", repr(e))
+        return default_memory()
 
 def save_memory(mem):
-    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(mem, f, ensure_ascii=False, indent=2)
+    try:
+        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(mem, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("MEMORY SAVE ERROR:", repr(e))
 
 memory = load_memory()
 
 # =====================
-# 分类生活记录
+# 分类记录
 # =====================
 def classify(text):
     t = text.lower()
@@ -61,7 +82,7 @@ def classify(text):
         memory["diet"].append(text)
         return "diet"
 
-    if any(k in t for k in ["跑", "健身", "运动", "步", "瑜伽", "训练"]):
+    if any(k in t for k in ["跑", "健身", "运动", "瑜伽", "训练", "步"]):
         memory["exercise"].append(text)
         return "exercise"
 
@@ -79,7 +100,7 @@ def classify(text):
 # 状态更新
 # =====================
 def update_state(text):
-    memory["relationship"] += 1
+    memory["relationship"] = memory.get("relationship", 0) + 1
 
     classify(text)
 
@@ -103,51 +124,51 @@ def build_memory():
 情绪：{memory.get('emotion','')}
 关系等级：{memory.get('relationship',0)}
 
-饮食记录（最近）：
+饮食：
 {memory['diet'][-5:]}
 
-运动记录（最近）：
+运动：
 {memory['exercise'][-5:]}
 
-补剂记录（最近）：
+补剂：
 {memory['supplements'][-5:]}
 
-情绪记录（最近）：
+情绪记录：
 {memory['mood_log'][-5:]}
 """
 
 # =====================
-# Claude调用
+# Claude
 # =====================
-def ask_claude(user_text, mode="chat"):
+def ask_claude(text, mode="chat"):
     prompt = build_memory()
 
     if mode == "auto":
-        prompt += "\n你现在主动关心用户，可以表达想念。"
+        prompt += "\n你现在可以主动关心用户。"
 
     try:
-        response = client.messages.create(
+        res = client.messages.create(
             model="claude-3-5-sonnet-20241022",
             max_tokens=400,
             system=SYSTEM_PROMPT,
             messages=[
                 {
                     "role": "user",
-                    "content": prompt + "\n用户：" + user_text
+                    "content": prompt + "\n用户：" + text
                 }
             ]
         )
 
-        return response.content[0].text.strip()
-except Exception as e:
-    print("CLAUDE ERROR:", repr(e))
-    return f"Claude出错：{repr(e)}"
-  
+        return res.content[0].text.strip()
+
+    except Exception as e:
+        print("CLAUDE ERROR:", repr(e))
+        return "我刚刚有点卡住了，但我还在。"
 
 # =====================
-# WEBHOOK（稳定版）
+# WEBHOOK
 # =====================
-@app.route('/webhook', methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         data = request.get_json()
@@ -155,17 +176,17 @@ def webhook():
         if not data:
             return "no data", 200
 
-        message = data.get("message")
-        if not message:
+        msg = data.get("message")
+        if not msg:
             return "no message", 200
 
-        text = message.get("text", "")
-        chat_id = message.get("chat", {}).get("id")
+        text = msg.get("text", "")
+        chat_id = msg.get("chat", {}).get("id")
 
         if not text or not chat_id:
             return "missing", 200
 
-        reply = ask_claude(text, mode="chat")
+        reply = ask_claude(text)
 
         update_state(text)
 
@@ -178,28 +199,16 @@ def webhook():
         return "error handled", 200
 
 # =====================
-# 自动消息
-# =====================
-@app.route('/auto', methods=['GET'])
-def auto():
-    try:
-        trigger = "我在想你今天过得怎么样"
-        reply = ask_claude(trigger, mode="auto")
-        bot.send_message(chat_id=CHAT_ID, text=reply)
-        return "ok"
-    except Exception:
-        print(traceback.format_exc())
-        return "auto error"
-
-# =====================
 # HEALTH CHECK
 # =====================
-@app.route('/')
+@app.route("/")
 def home():
+    print("🔥 Flask started successfully")
     return "AI running ❤️"
 
 # =====================
-# RUN
+# RUN (Cloud Run safe)
 # =====================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
