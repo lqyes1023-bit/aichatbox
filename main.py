@@ -139,10 +139,10 @@ def ask_claude(user_text, mode="chat"):
         )
 
         return response.content[0].text.strip()
-
-    except Exception as e:
-        print("CLAUDE ERROR:", repr(e))
-        return "我刚刚卡了一下，但我还在。"
+except Exception as e:
+    print("CLAUDE ERROR:", repr(e))
+    return f"Claude出错：{repr(e)}"
+  
 
 # =====================
 # WEBHOOK（稳定版）
