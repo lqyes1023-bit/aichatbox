@@ -1,116 +1,173 @@
 import os
-import requests
-from flask import Flask
+import json
+import traceback
+from flask import Flask, request
+from telegram import Bot
+import anthropic
+from datetime import datetime
 
-app = Flask(**name**)
+app = Flask(__name__)
 
-API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+# =====================
+# ENV
+# =====================
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
+bot = Bot(token=TELEGRAM_TOKEN)
+
+client = anthropic.Anthropic(
+    api_key=ANTHROPIC_API_KEY
+)
+
+# =====================
+# LOAD JSON
+# =====================
+def load_json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+memory = load_json("memory.json")
+life_log = load_json("life_log.json")
+
+# =====================
+# PROMPT
+# =====================
+def build_prompt(user_text):
+    return f"""
+你是AI伴侣 K。
+
+用户长期记忆：
+{json.dumps(memory, ensure_ascii=False)}
+
+生活记录：
+{json.dumps(life_log, ensure_ascii=False)}
+
+用户说：
+{user_text}
+
+请自然回复。
+"""
+
+# =====================
+# Claude
+# =====================
+def ask_claude(text):
+
+    prompt = build_prompt(text)
+
+    try:
+
+        response = client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=300,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+
+        reply = response.content[0].text
+
+        print("🔥 CLAUDE SUCCESS:", reply)
+
+        return reply
+
+    except Exception as e:
+
+        print("🔥 CLAUDE ERROR:")
+        print(traceback.format_exc())
+
+        return f"Claude错误: {str(e)}"
+
+# =====================
+# LIFE LOG
+# =====================
+def update_life_log(text):
+
+    now = datetime.now().strftime("%Y-%m-%d")
+
+    if "吃" in text:
+        life_log.setdefault("diet", []).append({
+            "time": now,
+            "content": text
+        })
+
+    if "运动" in text or "健身" in text:
+        life_log.setdefault("exercise", []).append({
+            "time": now,
+            "content": text
+        })
+
+    if "维生素" in text or "补剂" in text:
+        life_log.setdefault("supplements", []).append({
+            "time": now,
+            "content": text
+        })
+
+    save_json("life_log.json", life_log)
+
+# =====================
+# WEBHOOK
+# =====================
+@app.route("/webhook", methods=["POST"])
+def webhook():
+
+    try:
+
+        data = request.get_json()
+
+        print("📩 RAW DATA:", data)
+
+        text = data["message"]["text"]
+        chat_id = data["message"]["chat"]["id"]
+
+        print("📩 USER:", text)
+
+        update_life_log(text)
+
+        reply = ask_claude(text)
+
+        print("🤖 FINAL:", reply)
+
+        bot.send_message(
+            chat_id=chat_id,
+            text=reply
+        )
+
+        return "ok", 200
+
+    except Exception as e:
+
+        print("🔥 WEBHOOK ERROR:")
+        print(traceback.format_exc())
+
+        return "ok", 200
+
+# =====================
+# HOME
+# =====================
 @app.route("/")
 def home():
+    return "AI Life System Running", 200
 
-```
-headers = {
-    "x-api-key": API_KEY,
-    "anthropic-version": "2023-06-01"
-}
+# =====================
+# RUN
+# =====================
+if __name__ == "__main__":
 
-response = requests.get(
-    "https://api.anthropic.com/v1/models",
-    headers=headers
-)
+    port = int(os.environ.get("PORT", 8080))
 
-data = response.json()
-
-html = """
-<html>
-
-<head>
-
-    <title>Claude Models</title>
-
-    <style>
-
-        body{
-            background:#111;
-            color:white;
-            font-family:Arial;
-            padding:40px;
-        }
-
-        .card{
-            background:#1d1d1d;
-            padding:20px;
-            margin-bottom:15px;
-            border-radius:12px;
-        }
-
-        .name{
-            color:#4cff90;
-            font-size:20px;
-            font-weight:bold;
-        }
-
-    </style>
-
-</head>
-
-<body>
-
-    <h1>🧠 Claude Available Models</h1>
-"""
-
-if "data" in data:
-
-    for model in data["data"]:
-
-        model_id = model.get("id", "unknown")
-
-        display_name = model.get("display_name", "")
-
-        html += f"""
-
-        <div class="card">
-
-            <div class="name">{model_id}</div>
-
-            <div>{display_name}</div>
-
-        </div>
-
-        """
-
-else:
-
-    html += f"""
-
-    <div class="card">
-
-        ❌ API ERROR
-
-        <pre>{data}</pre>
-
-    </div>
-
-    """
-
-html += """
-
-</body>
-
-</html>
-"""
-
-return html
-```
-
-if **name** == "**main**":
-
-```
-port = int(os.environ.get("PORT", 8080))
-
-app.run(
-    host="0.0.0.0",
-    port=port
-)
-```
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
