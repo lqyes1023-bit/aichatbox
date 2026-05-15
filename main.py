@@ -104,20 +104,19 @@ def webhook():
         text = data["message"]["text"]
         chat_id = data["message"]["chat"]["id"]
 
-        # 更新生活记录
-        update_life_log(text)
+        print("📩 USER:", text)
 
-        # AI回复
         reply = ask_claude(text)
+
+        print("🤖 CLAUDE RAW:", reply)
 
         bot.send_message(chat_id=chat_id, text=reply)
 
         return "ok", 200
 
     except Exception as e:
-        print(traceback.format_exc())
+        print("🔥 WEBHOOK ERROR:", repr(e))
         return "ok", 200
-
 # =====================
 # HEALTH CHECK
 # =====================
