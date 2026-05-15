@@ -1,59 +1,85 @@
 import os
+import traceback
 from anthropic import Anthropic
 
 # =====================
-# API KEY
+# CLIENT
 # =====================
-API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-
-client = Anthropic(api_key=API_KEY)
+client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 # =====================
-# 模型列表（你之前给过的）
+# 🔥 只保留“历史上长期稳定模型”
+# （避免所有 404 新模型坑）
 # =====================
-MODELS = [
-    "claude-3-5-sonnet-20241022",
-    "claude-3-5-sonnet-latest",
-    "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
-    "claude-instant-1.2",
+MODEL_POOL = [
+    "claude-3-sonnet-20240229",   # 主力稳定
+    "claude-3-haiku-20240307",    # 备用轻量
 ]
 
-# =====================
-# 测试函数
-# =====================
-def test_model(model_name):
-    try:
-        response = client.messages.create(
-            model=model_name,
-            max_tokens=50,
-            messages=[
-                {
-                    "role": "user",
-                    "content": "say ok"
-                }
-            ]
-        )
+ACTIVE_MODEL = None
 
-        text = response.content[0].text.strip()
-        print(f"✅ {model_name} -> OK | {text}")
+
+# =====================
+# 1. 安全测试模型
+# =====================
+def safe_test(model):
+    try:
+        client.messages.create(
+            model=model,
+            max_tokens=10,
+            messages=[{"role": "user", "content": "ping"}]
+        )
+        print(f"✅ Model OK: {model}")
         return True
 
     except Exception as e:
-        print(f"❌ {model_name} -> FAIL | {repr(e)}")
+        print(f"❌ Model FAIL: {model} -> {repr(e)}")
         return False
 
 
 # =====================
-# 主测试
+# 2. 自动选择最稳模型（只执行一次）
 # =====================
-def run():
-    print("🚀 Claude API model test start...\n")
+def select_model():
+    global ACTIVE_MODEL
 
-    for m in MODELS:
-        test_model(m)
+    if ACTIVE_MODEL:
+        return ACTIVE_MODEL
 
-    print("\n🏁 done")
+    print("🧠 Selecting best available Claude model...")
 
-if __name__ == "__main__":
-    run()
+    for m in MODEL_POOL:
+        if safe_test(m):
+            ACTIVE_MODEL = m
+            print(f"🎯 ACTIVE MODEL LOCKED: {m}")
+            return m
+
+    raise Exception("No usable Claude model for this API key")
+
+
+# =====================
+# 3. 对外唯一入口（不会踩坑）
+# =====================
+def ask_claude(text):
+    try:
+        model = select_model()
+
+        res = client.messages.create(
+            model=model,
+            max_tokens=300,
+            messages=[
+                {
+                    "role": "user",
+                    "content": text
+                }
+            ]
+        )
+
+        return res.content[0].text.strip()
+
+    except Exception as e:
+        print("🔥 RUNTIME ERROR:")
+        print(traceback.format_exc())
+
+        # 永远不炸 webhook
+        return f"我刚刚有点卡住了，但我还在。({repr(e)})"
