@@ -1,22 +1,5 @@
 {
-  "diet": [
-    {
-      "time": "2026-05-15",
-      "item": "鸡胸肉+沙拉",
-      "note": "低碳"
-    }
-  ],
-  "exercise": [
-    {
-      "time": "2026-05-15",
-      "type": "跑步",
-      "duration": "30min"
-    }
-  ],
-  "supplements": [
-    {
-      "time": "2026-05-15",
-      "name": "维生素D"
-    }
-  ]
+  "diet": [],
+  "exercise": [],
+  "supplements": []
 }
