@@ -57,7 +57,7 @@ def build_prompt(user_text):
 def ask_claude(text):
     try:
         res = client.messages.create(
-            model="claude-3-sonnet-20240229",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=400,
             messages=[{"role": "user", "content": build_prompt(text)}]
         )
