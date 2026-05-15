@@ -1,4 +1,3 @@
-
 import os
 import json
 import traceback
@@ -122,31 +121,45 @@ def update_life_log(text):
 # =====================
 @app.route("/webhook", methods=["POST"])
 def webhook():
+
     try:
+
         data = request.get_json()
-        print("✅ 1. 收到请求")
-        
+
+        print("📩 RAW DATA:", data)
+
         text = data["message"]["text"]
         chat_id = data["message"]["chat"]["id"]
-        print(f"✅ 2. 提取消息: {text}")
-        
+
+        print("📩 USER:", text)
+
         update_life_log(text)
-        print("✅ 3. 更新日志")
-        
+
         reply = ask_claude(text)
-        print(f"✅ 4. Claude 回复: {reply}")
-        
+
+        print("🤖 FINAL:", reply)
+
         bot.send_message(
-    chat_id=chat_id,
-    text=reply
-)
-    print("✅ 消息已发送")
-    
-    return "ok", 200
-except Exception as e:
-    print(f"❌ 错误: {str(e)}")
-    print(traceback.format_exc())
-    return "ok", 200
+            chat_id=chat_id,
+            text=reply
+        )
+
+        return "ok", 200
+
+    except Exception as e:
+
+        print("🔥 WEBHOOK ERROR:")
+        print(traceback.format_exc())
+
+        return "ok", 200
+
+# =====================
+# HOME
+# =====================
+@app.route("/")
+def home():
+    return "AI Life System Running", 200
+
 # =====================
 # RUN
 # =====================
