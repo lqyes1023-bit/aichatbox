@@ -3,7 +3,7 @@ import json
 import traceback
 from flask import Flask, request
 from telegram import Bot
-from anthropic import Anthropic
+import anthropic
 from datetime import datetime
 
 app = Flask(__name__)
@@ -15,14 +15,20 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 bot = Bot(token=TELEGRAM_TOKEN)
-client = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+client = anthropic.Anthropic(
+    api_key=ANTHROPIC_API_KEY
+)
 
 # =====================
 # LOAD JSON
 # =====================
 def load_json(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {}
 
 def save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
@@ -32,61 +38,78 @@ memory = load_json("memory.json")
 life_log = load_json("life_log.json")
 
 # =====================
-# SYSTEM PROMPT
+# PROMPT
 # =====================
 def build_prompt(user_text):
     return f"""
 你是AI伴侣 K。
 
-用户信息：
-{memory}
+用户长期记忆：
+{json.dumps(memory, ensure_ascii=False)}
 
 生活记录：
-{life_log}
+{json.dumps(life_log, ensure_ascii=False)}
 
-用户输入：
+用户说：
 {user_text}
 
-如果用户提到饮食/运动/补剂：
-- 自动整理成结构化记录（不需要解释）
+请自然回复。
 """
 
 # =====================
 # Claude
 # =====================
 def ask_claude(text):
+
+    prompt = build_prompt(text)
+
     try:
-        res = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=400,
-            messages=[{"role": "user", "content": build_prompt(text)}]
+
+        response = client.messages.create(
+            model="claude-3-5-sonnet-latest",
+            max_tokens=300,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
         )
-        return res.content[0].text.strip()
+
+        reply = response.content[0].text
+
+        print("🔥 CLAUDE SUCCESS:", reply)
+
+        return reply
 
     except Exception as e:
+
+        print("🔥 CLAUDE ERROR:")
         print(traceback.format_exc())
-        return "我刚刚卡了一下，但我还在。"
+
+        return f"Claude错误: {str(e)}"
 
 # =====================
-# 解析生活记录
+# LIFE LOG
 # =====================
 def update_life_log(text):
+
     now = datetime.now().strftime("%Y-%m-%d")
 
-    if "吃" in text or "饮食" in text:
-        life_log["diet"].append({
+    if "吃" in text:
+        life_log.setdefault("diet", []).append({
             "time": now,
             "content": text
         })
 
-    if "跑" in text or "运动" in text or "健身" in text:
-        life_log["exercise"].append({
+    if "运动" in text or "健身" in text:
+        life_log.setdefault("exercise", []).append({
             "time": now,
             "content": text
         })
 
     if "维生素" in text or "补剂" in text:
-        life_log["supplements"].append({
+        life_log.setdefault("supplements", []).append({
             "time": now,
             "content": text
         })
@@ -98,20 +121,40 @@ def update_life_log(text):
 # =====================
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json()
 
-    text = data["message"]["text"]
-    chat_id = data["message"]["chat"]["id"]
+    try:
 
-    reply = ask_claude(text)
+        data = request.get_json()
 
-    print("🔥 FINAL REPLY:", reply)
+        print("📩 RAW DATA:", data)
 
-    bot.send_message(chat_id=chat_id, text=reply)
+        text = data["message"]["text"]
+        chat_id = data["message"]["chat"]["id"]
 
-    return "ok", 200
+        print("📩 USER:", text)
+
+        update_life_log(text)
+
+        reply = ask_claude(text)
+
+        print("🤖 FINAL:", reply)
+
+        bot.send_message(
+            chat_id=chat_id,
+            text=reply
+        )
+
+        return "ok", 200
+
+    except Exception as e:
+
+        print("🔥 WEBHOOK ERROR:")
+        print(traceback.format_exc())
+
+        return "ok", 200
+
 # =====================
-# HEALTH CHECK
+# HOME
 # =====================
 @app.route("/")
 def home():
@@ -121,5 +164,10 @@ def home():
 # RUN
 # =====================
 if __name__ == "__main__":
+
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
