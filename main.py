@@ -136,11 +136,10 @@ def webhook():
         reply = ask_claude(text)
         print(f"✅ 4. Claude 回复: {reply}")
         
-        import asyncio
-    asyncio.run(bot.send_message(
-        chat_id=chat_id,
-        text=reply
-    ))
+        bot.send_message(
+    chat_id=chat_id,
+    text=reply
+)
     print("✅ 消息已发送")
     
     return "ok", 200
