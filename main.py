@@ -5,6 +5,7 @@ from flask import Flask, request
 from telegram import Bot
 import anthropic
 from datetime import datetime
+from google.cloud import storage
 
 app = Flask(__name__)
 
@@ -13,6 +14,7 @@ app = Flask(__name__)
 # =====================
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+BUCKET_NAME = os.environ.get("GCS_BUCKET")
 
 bot = Bot(token=TELEGRAM_TOKEN)
 
@@ -21,113 +23,57 @@ client = anthropic.Anthropic(
 )
 
 # =====================
-# CHAT HISTORY
+# GCS STORAGE
 # =====================
+storage_client = storage.Client()
+bucket = storage_client.bucket(BUCKET_NAME)
 
-def load_history():
-    try:
-        with open("chat_history.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return []
 
-def save_history(history):
-    with open("chat_history.json", "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
+def load_json_gcs(filename, default):
+    blob = bucket.blob(filename)
+    if not blob.exists():
+        return default
+    return json.loads(blob.download_as_text())
 
-# =====================
-# LOAD JSON
-# =====================
-def load_json(path):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {}
 
-def save_json(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-memory = load_json("memory.json")
-life_log = load_json("life_log.json")
+def save_json_gcs(filename, data):
+    blob = bucket.blob(filename)
+    blob.upload_from_string(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        content_type="application/json"
+    )
 
 # =====================
-# PROMPT
+# LOAD MEMORY
 # =====================
-def build_prompt(user_text):
-    return f"""
-你是AI情感健康伴侣 K。
-
-用户长期记忆：
-{json.dumps(memory, ensure_ascii=False)}
-
-生活记录：
-{json.dumps(life_log, ensure_ascii=False)}
-
-用户说：
-{user_text}
-
-请自然回复。
-"""
+memory = load_json_gcs("memory.json", {})
+life_log = load_json_gcs("life_log.json", {})
+history = load_json_gcs("chat_history.json", [])
 
 # =====================
-# Claude
+# MEMORY UPDATE
 # =====================
-def ask_claude(text):
+def update_memory(text, memory):
+    if "喜欢" in text:
+        memory.setdefault("likes", []).append(text)
 
-    history = load_history()
+    if "我是" in text:
+        memory.setdefault("identity", []).append(text)
 
-    history.append({
-        "role": "user",
-        "content": text
-    })
+    if "不喜欢" in text:
+        memory.setdefault("dislikes", []).append(text)
 
-    history = history[-15:]
+    return memory
 
-    try:
 
-        messages = history.copy()
-
-        # 加入人格层（只加一次）
-        messages.insert(0, {
-            "role": "user",
-            "content": build_prompt(text)
-        })
-
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=200,
-            messages=messages
-        )
-
-        reply = response.content[0].text
-
-        print("🔥 CLAUDE SUCCESS:", reply)
-
-        history.append({
-            "role": "assistant",
-            "content": reply
-        })
-
-        save_history(history)
-
-        return reply
-
-    except Exception as e:
-
-        print("🔥 CLAUDE ERROR:")
-        print(traceback.format_exc())
-
-        return f"Claude错误: {str(e)}"
 # =====================
 # LIFE LOG
 # =====================
-def update_life_log(text):
+def update_life_log(text, life_log):
 
     now = datetime.now().strftime("%Y-%m-%d")
 
-    if "吃" in text:
+    if "吃" in text or "补剂" in text:
         life_log.setdefault("diet", []).append({
             "time": now,
             "content": text
@@ -139,13 +85,67 @@ def update_life_log(text):
             "content": text
         })
 
-    if "维生素" in text or "补剂" in text:
+    if "维生素" in text:
         life_log.setdefault("supplements", []).append({
             "time": now,
             "content": text
         })
 
-    save_json("life_log.json", life_log)
+    return life_log
+
+
+# =====================
+# CLAUDE
+# =====================
+def ask_claude(text):
+
+    global memory, life_log, history
+
+    # 更新记忆
+    memory = update_memory(text, memory)
+    life_log = update_life_log(text, life_log)
+
+    # history
+    history.append({
+        "role": "user",
+        "content": text
+    })
+
+    history = history[-20:]
+
+    try:
+
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            messages=history
+        )
+
+        reply = response.content[0].text
+
+        print("🔥 CLAUDE SUCCESS:", reply)
+
+        history.append({
+            "role": "assistant",
+            "content": reply
+        })
+
+        # =====================
+        # SAVE TO GCS
+        # =====================
+        save_json_gcs("memory.json", memory)
+        save_json_gcs("life_log.json", life_log)
+        save_json_gcs("chat_history.json", history)
+
+        return reply
+
+    except Exception as e:
+
+        print("🔥 CLAUDE ERROR:")
+        print(traceback.format_exc())
+
+        return f"Claude错误: {str(e)}"
+
 
 # =====================
 # WEBHOOK
@@ -154,7 +154,6 @@ def update_life_log(text):
 def webhook():
 
     try:
-
         data = request.get_json()
 
         print("📩 RAW DATA:", data)
@@ -163,8 +162,6 @@ def webhook():
         chat_id = data["message"]["chat"]["id"]
 
         print("📩 USER:", text)
-
-        update_life_log(text)
 
         reply = ask_claude(text)
 
@@ -178,11 +175,10 @@ def webhook():
         return "ok", 200
 
     except Exception as e:
-
         print("🔥 WEBHOOK ERROR:")
         print(traceback.format_exc())
-
         return "ok", 200
+
 
 # =====================
 # HOME
@@ -190,6 +186,7 @@ def webhook():
 @app.route("/")
 def home():
     return "AI Life System Running", 200
+
 
 # =====================
 # RUN
