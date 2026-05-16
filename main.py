@@ -87,10 +87,18 @@ def ask_claude(text):
 
     try:
 
+        messages = history.copy()
+
+        # 加入人格层（只加一次）
+        messages.insert(0, {
+            "role": "user",
+            "content": build_prompt(text)
+        })
+
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=200,
-            messages=history
+            messages=messages
         )
 
         reply = response.content[0].text
