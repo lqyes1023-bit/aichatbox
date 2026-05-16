@@ -1,1 +1,1 @@
-history = history[-10:]
+history = history[-15:]
