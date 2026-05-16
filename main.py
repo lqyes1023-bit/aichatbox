@@ -21,6 +21,21 @@ client = anthropic.Anthropic(
 )
 
 # =====================
+# CHAT HISTORY
+# =====================
+
+def load_history():
+    try:
+        with open("chat_history.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_history(history):
+    with open("chat_history.json", "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+
+# =====================
 # LOAD JSON
 # =====================
 def load_json(path):
@@ -42,7 +57,7 @@ life_log = load_json("life_log.json")
 # =====================
 def build_prompt(user_text):
     return f"""
-你是AI伴侣 K。
+你是AI情感健康伴侣 K。
 
 用户长期记忆：
 {json.dumps(memory, ensure_ascii=False)}
@@ -61,24 +76,33 @@ def build_prompt(user_text):
 # =====================
 def ask_claude(text):
 
-    prompt = build_prompt(text)
+    history = load_history()
+
+    history.append({
+        "role": "user",
+        "content": text
+    })
+
+    history = history[-15:]
 
     try:
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=300,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
+            max_tokens=200,
+            messages=history
         )
 
         reply = response.content[0].text
 
         print("🔥 CLAUDE SUCCESS:", reply)
+
+        history.append({
+            "role": "assistant",
+            "content": reply
+        })
+
+        save_history(history)
 
         return reply
 
@@ -88,7 +112,6 @@ def ask_claude(text):
         print(traceback.format_exc())
 
         return f"Claude错误: {str(e)}"
-
 # =====================
 # LIFE LOG
 # =====================
