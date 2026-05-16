@@ -27,13 +27,16 @@ client = anthropic.Anthropic(
 # =====================
 storage_client = storage.Client()
 bucket = storage_client.bucket(BUCKET_NAME)
-
+print("🔥 BUCKET NAME:", BUCKET_NAME)
 
 def load_json_gcs(filename, default):
     blob = bucket.blob(filename)
-    if not blob.exists():
+
+    try:
+        data = blob.download_as_text()
+        return json.loads(data)
+    except Exception:
         return default
-    return json.loads(blob.download_as_text())
 
 
 def save_json_gcs(filename, data):
@@ -92,6 +95,24 @@ def update_life_log(text, life_log):
         })
 
     return life_log
+# =====================
+# PROMPT
+# =====================
+def build_prompt(user_text):
+    return f"""
+你是AI伴侣 K。
+
+用户长期记忆：
+{json.dumps(memory, ensure_ascii=False)}
+
+生活记录：
+{json.dumps(life_log, ensure_ascii=False)}
+
+用户说：
+{user_text}
+
+请自然回复。
+"""
 
 
 # =====================
@@ -111,7 +132,7 @@ def ask_claude(text):
         "content": text
     })
 
-    history = history[-20:]
+    history = history[-15:]
 
     try:
 
