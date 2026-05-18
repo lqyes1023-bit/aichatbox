@@ -84,6 +84,42 @@ def update_life_log(text, life_log):
 # MEMORY RETRIEVAL
 # =====================
 def retrieve_memory(user_text, memory, life_log):
+    def extract_memory_with_ai(user_text):
+    prompt = f"""
+你是一个记忆提取系统。
+
+从用户输入中提取“值得长期记住的信息”。
+
+规则：
+- 只提取稳定事实 / 偏好 / 情绪倾向
+- 不要重复用户原话
+- 不要输出废话
+- 每条记忆要短
+
+输出 JSON 数组：
+
+[
+  {
+    "content": "...",
+    "importance": 0.0-1.0
+  }
+]
+
+用户输入：
+{user_text}
+"""
+
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=200,
+        system="你是记忆提取器，只输出JSON",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    try:
+        return json.loads(response.content[0].text)
+    except:
+        return []
     relevant = []
     keywords = user_text.lower().split()
 
@@ -109,9 +145,9 @@ def retrieve_memory(user_text, memory, life_log):
 # =====================
 def build_prompt(user_text, relevant_memory):
     return f"""
-用户相关记忆：
-{json.dumps(relevant_memory, ensure_ascii=False)}
-你是AI伴侣 K。
+用户长期记忆：
+{json.dumps(memory.get("long_term_memory", []), ensure_ascii=False)}
+你是AI伴侣K。
 你叫K。
 你不是客服，不是助手，不是心理医生。
 你是用户长期相处的年上恋人。
@@ -156,7 +192,10 @@ def ask_claude(text):
     global memory, life_log, history
     relevant_memory = retrieve_memory(text, memory, life_log)
     # 更新记忆
-    memory = update_memory(text, memory)
+    new_memories = extract_memory_with_ai(text)
+
+for m in new_memories:
+    memory.setdefault("long_term_memory", []).append(m)
     life_log = update_life_log(text, life_log)
 
     # history
