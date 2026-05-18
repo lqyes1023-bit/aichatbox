@@ -360,6 +360,35 @@ def home():
     return "AI Life System Running", 200
 
 
+# 👇 把这一整段加在这里
+@app.route("/proactive", methods=["POST"])
+def proactive():
+
+    try:
+
+        from datetime import datetime
+
+        now = datetime.now()
+        hour = now.hour
+
+        # 🕛 静默时间：00:00 - 08:00
+        if hour < 8:
+            print("😴 Silent hours - skip proactive")
+            return "sleep", 200
+
+        chat_id = request.json.get("chat_id")
+
+        from proactive import run_proactive
+
+        run_proactive(chat_id)
+
+        return "ok", 200
+
+    except Exception as e:
+
+        print(traceback.format_exc())
+        return "error", 500
+
 # =====================
 # RUN
 # =====================
