@@ -173,7 +173,39 @@ def retrieve_memory(user_text, memory, life_log):
     )
 
     return relevant[:8]
+def score_memory(memory_item):
 
+    importance = memory_item.get("importance", 0.5)
+
+    # 时间衰减（后面会升级）
+    importance *= 0.98
+
+    # 最低保护
+    if importance < 0.1:
+        importance = 0.1
+
+    memory_item["importance"] = round(importance, 2)
+
+    return memory_item
+
+def reinforce_memory(memory, new_memory):
+
+    content = new_memory.get("content")
+
+    for item in memory.get("long_term_memory", []):
+
+        if item.get("content") == content:
+
+            item["importance"] = min(
+                item.get("importance", 0.5) + 0.1,
+                1.0
+            )
+
+            return memory
+
+    memory.setdefault("long_term_memory", []).append(new_memory)
+
+    return memory
 # =====================
 # PROMPT
 # =====================
@@ -240,25 +272,17 @@ def ask_claude(text):
     new_memories = extract_memory_with_ai(text)
 
     if "long_term_memory" not in memory:
-        memory["long_term_memory"] = []
+    memory["long_term_memory"] = []
 
-    for m in new_memories:
+for m in new_memories:
 
-        content = m.get("content")
+    if not m.get("content"):
+        continue
 
-        if not content:
-            continue
+    m = score_memory(m)
 
-        exists = any(
-            x.get("content") == content
-            for x in memory["long_term_memory"]
-        )
-
-        if not exists:
-            memory["long_term_memory"].append(m)
-
-    # update life log
-    life_log = update_life_log(text, life_log)
+    memory = reinforce_memory(memory, m)
+life_log = update_life_log(text, life_log)
 
     # history
     history.append({
