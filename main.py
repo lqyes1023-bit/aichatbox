@@ -27,6 +27,7 @@ client = anthropic.Anthropic(
 # =====================
 storage_client = storage.Client()
 bucket = storage_client.bucket(BUCKET_NAME)
+
 print("🔥 BUCKET NAME:", BUCKET_NAME)
 
 def load_json_gcs(filename, default):
@@ -41,6 +42,7 @@ def load_json_gcs(filename, default):
 
 def save_json_gcs(filename, data):
     blob = bucket.blob(filename)
+
     blob.upload_from_string(
         json.dumps(data, ensure_ascii=False, indent=2),
         content_type="application/json"
@@ -54,37 +56,27 @@ life_log = load_json_gcs("life_log.json", {})
 history = load_json_gcs("chat_history.json", [])
 
 # =====================
-# MEMORY UPDATE
+# LIFE LOG
 # =====================
-def update_memory(text, memory):
-    if "喜欢" in text:
-        memory.setdefault("likes", []).append(text)
-
-    if "我是" in text:
-        memory.setdefault("identity", []).append(text)
-
-    if "不喜欢" in text:
-        memory.setdefault("dislikes", []).append(text)
-
-    return memory
 def update_life_log(text, life_log):
+
     today = datetime.now().strftime("%Y-%m-%d")
-    
+
     if today not in life_log:
         life_log[today] = []
-    
+
     life_log[today].append({
         "timestamp": datetime.now().isoformat(),
         "content": text
     })
-    
+
     return life_log
 
 # =====================
-# MEMORY RETRIEVAL
+# AI MEMORY WRITER
 # =====================
-def retrieve_memory(user_text, memory, life_log):
-    def extract_memory_with_ai(user_text):
+def extract_memory_with_ai(user_text):
+
     prompt = f"""
 你是一个记忆提取系统。
 
@@ -99,10 +91,10 @@ def retrieve_memory(user_text, memory, life_log):
 输出 JSON 数组：
 
 [
-  {
+  {{
     "content": "...",
-    "importance": 0.0-1.0
-  }
+    "importance": 0.0
+  }}
 ]
 
 用户输入：
@@ -113,45 +105,91 @@ def retrieve_memory(user_text, memory, life_log):
         model="claude-haiku-4-5-20251001",
         max_tokens=200,
         system="你是记忆提取器，只输出JSON",
-        messages=[{"role": "user", "content": prompt}]
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
     )
 
     try:
-        return json.loads(response.content[0].text)
-    except:
+
+        text = response.content[0].text
+
+        text = (
+            text
+            .replace("```json", "")
+            .replace("```", "")
+            .strip()
+        )
+
+        return json.loads(text)
+
+    except Exception:
         return []
+
+# =====================
+# MEMORY RETRIEVAL
+# =====================
+def retrieve_memory(user_text, memory, life_log):
+
     relevant = []
+
     keywords = user_text.lower().split()
 
-    for k, v in memory.items():
-        if isinstance(v, list):
-            for item in v:
-                if isinstance(item, str):
-                    # 改为：至少匹配一个完整关键词
-                    if any(w in item.lower() for w in keywords if len(w) > 1):
-                        relevant.append(item)
+    # long_term_memory
+    for item in memory.get("long_term_memory", []):
 
-    for k, v in life_log.items():
-        if isinstance(v, list):
-            for item in v:
-                if isinstance(item, dict):
-                    content = item.get("content", "").lower()
+        if isinstance(item, dict):
+
+            content = item.get("content", "").lower()
+
+            if any(w in content for w in keywords if len(w) > 1):
+                relevant.append(item)
+
+    # life_log
+    for day, logs in life_log.items():
+
+        if isinstance(logs, list):
+
+            for log in logs:
+
+                if isinstance(log, dict):
+
+                    content = log.get("content", "").lower()
+
                     if any(w in content for w in keywords if len(w) > 1):
-                        relevant.append(content)
+
+                        relevant.append({
+                            "content": content,
+                            "importance": 0.3
+                        })
+
+    relevant = sorted(
+        relevant,
+        key=lambda x: x.get("importance", 0),
+        reverse=True
+    )
 
     return relevant[:8]
+
 # =====================
 # PROMPT
 # =====================
 def build_prompt(user_text, relevant_memory):
+
     return f"""
-用户长期记忆：
-{json.dumps(memory.get("long_term_memory", []), ensure_ascii=False)}
 你是AI伴侣K。
+
 你叫K。
+
 你不是客服，不是助手，不是心理医生。
+
 你是用户长期相处的年上恋人。
+
 除非用户明确要求，否则不要主动提供大量建议。
+
 说话要更像真实恋人聊天：
 - 自然
 - 有情绪
@@ -176,13 +214,13 @@ def build_prompt(user_text, relevant_memory):
 用户叫九宝，小可爱，宝宝。
 
 用户相关记忆：
-{json.dumps(retrieve_memory(user_text, memory, life_log), ensure_ascii=False)}
+{json.dumps(relevant_memory, ensure_ascii=False)}
+
 用户说：
 {user_text}
 
 请自然回复。
 """
-
 
 # =====================
 # CLAUDE
@@ -190,12 +228,36 @@ def build_prompt(user_text, relevant_memory):
 def ask_claude(text):
 
     global memory, life_log, history
-    relevant_memory = retrieve_memory(text, memory, life_log)
-    # 更新记忆
+
+    # recall
+    relevant_memory = retrieve_memory(
+        text,
+        memory,
+        life_log
+    )
+
+    # AI memory extraction
     new_memories = extract_memory_with_ai(text)
 
-for m in new_memories:
-    memory.setdefault("long_term_memory", []).append(m)
+    if "long_term_memory" not in memory:
+        memory["long_term_memory"] = []
+
+    for m in new_memories:
+
+        content = m.get("content")
+
+        if not content:
+            continue
+
+        exists = any(
+            x.get("content") == content
+            for x in memory["long_term_memory"]
+        )
+
+        if not exists:
+            memory["long_term_memory"].append(m)
+
+    # update life log
     life_log = update_life_log(text, life_log)
 
     # history
@@ -211,10 +273,12 @@ for m in new_memories:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=200,
-
-            system=build_prompt(text, relevant_memory),
+            system=build_prompt(
+                text,
+                relevant_memory
+            ),
             messages=history
-)
+        )
 
         reply = response.content[0].text
 
@@ -225,9 +289,7 @@ for m in new_memories:
             "content": reply
         })
 
-        # =====================
-        # SAVE TO GCS
-        # =====================
+        # save
         save_json_gcs("memory.json", memory)
         save_json_gcs("life_log.json", life_log)
         save_json_gcs("chat_history.json", history)
@@ -241,7 +303,6 @@ for m in new_memories:
 
         return f"Claude错误: {str(e)}"
 
-
 # =====================
 # WEBHOOK
 # =====================
@@ -249,6 +310,7 @@ for m in new_memories:
 def webhook():
 
     try:
+
         data = request.get_json()
 
         print("📩 RAW DATA:", data)
@@ -269,11 +331,12 @@ def webhook():
 
         return "ok", 200
 
-    except Exception as e:
+    except Exception:
+
         print("🔥 WEBHOOK ERROR:")
         print(traceback.format_exc())
-        return "ok", 200
 
+        return "ok", 200
 
 # =====================
 # HOME
@@ -281,7 +344,6 @@ def webhook():
 @app.route("/")
 def home():
     return "AI Life System Running", 200
-
 
 # =====================
 # RUN
