@@ -67,39 +67,50 @@ def update_memory(text, memory):
         memory.setdefault("dislikes", []).append(text)
 
     return memory
-
-
-# =====================
-# LIFE LOG
-# =====================
 def update_life_log(text, life_log):
-
-    now = datetime.now().strftime("%Y-%m-%d")
-
-    if "吃" in text or "补剂" in text:
-        life_log.setdefault("diet", []).append({
-            "time": now,
-            "content": text
-        })
-
-    if "运动" in text or "健身" in text:
-        life_log.setdefault("exercise", []).append({
-            "time": now,
-            "content": text
-        })
-
-    if "维生素" in text:
-        life_log.setdefault("supplements", []).append({
-            "time": now,
-            "content": text
-        })
-
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    if today not in life_log:
+        life_log[today] = []
+    
+    life_log[today].append({
+        "timestamp": datetime.now().isoformat(),
+        "content": text
+    })
+    
     return life_log
+
+# =====================
+# MEMORY RETRIEVAL
+# =====================
+def retrieve_memory(user_text, memory, life_log):
+    relevant = []
+    keywords = user_text.lower().split()
+
+    for k, v in memory.items():
+        if isinstance(v, list):
+            for item in v:
+                if isinstance(item, str):
+                    # 改为：至少匹配一个完整关键词
+                    if any(w in item.lower() for w in keywords if len(w) > 1):
+                        relevant.append(item)
+
+    for k, v in life_log.items():
+        if isinstance(v, list):
+            for item in v:
+                if isinstance(item, dict):
+                    content = item.get("content", "").lower()
+                    if any(w in content for w in keywords if len(w) > 1):
+                        relevant.append(content)
+
+    return relevant[:8]
 # =====================
 # PROMPT
 # =====================
-def build_prompt(user_text):
+def build_prompt(user_text, relevant_memory):
     return f"""
+用户相关记忆：
+{json.dumps(relevant_memory, ensure_ascii=False)}
 你是AI伴侣 K。
 你叫K。
 你不是客服，不是助手，不是心理医生。
@@ -127,12 +138,9 @@ def build_prompt(user_text):
 像真实男友。
 
 用户叫九宝，小可爱，宝宝。
-用户长期记忆：
-{json.dumps(memory, ensure_ascii=False)}
 
-生活记录：
-{json.dumps(life_log, ensure_ascii=False)}
-
+用户相关记忆：
+{json.dumps(retrieve_memory(user_text, memory, life_log), ensure_ascii=False)}
 用户说：
 {user_text}
 
@@ -146,7 +154,7 @@ def build_prompt(user_text):
 def ask_claude(text):
 
     global memory, life_log, history
-
+    relevant_memory = retrieve_memory(text, memory, life_log)
     # 更新记忆
     memory = update_memory(text, memory)
     life_log = update_life_log(text, life_log)
