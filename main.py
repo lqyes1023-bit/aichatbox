@@ -173,7 +173,7 @@ def ask_claude(text):
             model="claude-haiku-4-5-20251001",
             max_tokens=200,
 
-            system=build_prompt(text),
+            system=build_prompt(text, relevant_memory),
             messages=history
 )
 
