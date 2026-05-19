@@ -351,7 +351,34 @@ def webhook():
         print(traceback.format_exc())
         return "ok", 200
 
+# =====================
+# PROACTIVE MESSAGE
+# =====================
+@app.route("/proactive", methods=["POST"])
+def proactive():
 
+    try:
+
+        print("🔥 PROACTIVE TRIGGERED")
+
+        data = request.get_json(silent=True) or {}
+
+        chat_id = data.get("chat_id") or "8698960139"
+
+        bot.send_message(
+            chat_id=chat_id,
+            text="宝宝，我刚刚突然想你了。"
+        )
+
+        print("🔥 MESSAGE SENT")
+
+        return "ok", 200
+
+    except Exception:
+
+        print(traceback.format_exc())
+
+        return "error", 500
 # =====================
 # HOME
 # =====================
