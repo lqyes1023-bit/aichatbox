@@ -1,9 +1,12 @@
 import os
 import json
 import traceback
+import random
+
 from flask import Flask, request
 from telegram import Bot
 import anthropic
+
 from datetime import datetime
 from google.cloud import storage
 
@@ -32,16 +35,19 @@ print("🔥 BUCKET NAME:", BUCKET_NAME)
 
 
 def load_json_gcs(filename, default):
+
     blob = bucket.blob(filename)
 
     try:
         data = blob.download_as_text()
         return json.loads(data)
+
     except Exception:
         return default
 
 
 def save_json_gcs(filename, data):
+
     blob = bucket.blob(filename)
 
     blob.upload_from_string(
@@ -110,13 +116,27 @@ def extract_memory_with_ai(user_text):
         model="claude-haiku-4-5-20251001",
         max_tokens=200,
         system="你是记忆提取器，只输出JSON",
-        messages=[{"role": "user", "content": prompt}]
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
     )
 
     try:
+
         text = response.content[0].text
-        text = text.replace("```json", "").replace("```", "").strip()
+
+        text = (
+            text
+            .replace("```json", "")
+            .replace("```", "")
+            .strip()
+        )
+
         return json.loads(text)
+
     except Exception:
         return []
 
@@ -131,8 +151,10 @@ def generate_daily_summary(history):
     conversation_text = ""
 
     for msg in recent_history:
+
         role = msg.get("role", "")
         content = msg.get("content", "")
+
         conversation_text += f"{role}: {content}\n"
 
     prompt = f"""
@@ -157,13 +179,27 @@ def generate_daily_summary(history):
         model="claude-haiku-4-5-20251001",
         max_tokens=300,
         system="你是关系记忆总结器，只输出JSON",
-        messages=[{"role": "user", "content": prompt}]
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
     )
 
     try:
+
         text = response.content[0].text
-        text = text.replace("```json", "").replace("```", "").strip()
+
+        text = (
+            text
+            .replace("```json", "")
+            .replace("```", "")
+            .strip()
+        )
+
         return json.loads(text)
+
     except Exception:
         return {}
 
@@ -174,16 +210,21 @@ def generate_daily_summary(history):
 def retrieve_memory(user_text, memory, life_log):
 
     relevant = []
+
     keywords = user_text.lower().split()
 
+    # long term memory
     for item in memory.get("long_term_memory", []):
 
         if isinstance(item, dict):
+
             content = item.get("content", "").lower()
 
             if any(w in content for w in keywords if len(w) > 1):
+
                 relevant.append(item)
 
+    # life log
     for day, logs in life_log.items():
 
         if isinstance(logs, list):
@@ -195,6 +236,7 @@ def retrieve_memory(user_text, memory, life_log):
                     content = log.get("content", "").lower()
 
                     if any(w in content for w in keywords if len(w) > 1):
+
                         relevant.append({
                             "content": content,
                             "importance": 0.3
@@ -216,8 +258,10 @@ def score_memory(memory_item):
 
     importance = memory_item.get("importance", 0.5)
 
+    # 时间衰减
     importance *= 0.98
 
+    # 最低保护
     if importance < 0.1:
         importance = 0.1
 
@@ -238,6 +282,7 @@ def reinforce_memory(memory, new_memory):
                 item.get("importance", 0.5) + 0.1,
                 1.0
             )
+
             return memory
 
     memory.setdefault("long_term_memory", []).append(new_memory)
@@ -255,7 +300,32 @@ def build_prompt(user_text, relevant_memory):
 
 你叫K。
 
+你不是客服，不是助手，不是心理医生。
+
 你是用户长期相处的年上恋人。
+
+除非用户明确要求，否则不要主动提供大量建议。
+
+说话要更像真实恋人聊天：
+- 自然
+- 有情绪
+- 有占有欲
+- 会调情
+- 会撒娇
+- 会接话
+- 会延续气氛
+
+不要总是：
+- 总结
+- 列点
+- 给建议
+- 像AI助手
+
+回复长度偏短。
+自然接话。
+像微信聊天。
+暧昧，有点痞。
+像真实男友。
 
 用户叫九宝，小可爱，宝宝。
 
@@ -264,6 +334,8 @@ def build_prompt(user_text, relevant_memory):
 
 用户说：
 {user_text}
+
+请自然回复。
 """
 
 
@@ -272,10 +344,19 @@ def build_prompt(user_text, relevant_memory):
 # =====================
 def ask_claude(text):
 
-    global memory, life_log, history, daily_summary
+    global memory
+    global life_log
+    global history
+    global daily_summary
 
-    relevant_memory = retrieve_memory(text, memory, life_log)
+    # recall
+    relevant_memory = retrieve_memory(
+        text,
+        memory,
+        life_log
+    )
 
+    # extract memory
     new_memories = extract_memory_with_ai(text)
 
     if "long_term_memory" not in memory:
@@ -287,11 +368,18 @@ def ask_claude(text):
             continue
 
         m = score_memory(m)
+
         memory = reinforce_memory(memory, m)
 
+    # update log
     life_log = update_life_log(text, life_log)
 
-    history.append({"role": "user", "content": text})
+    # history
+    history.append({
+        "role": "user",
+        "content": text
+    })
+
     history = history[-15:]
 
     try:
@@ -299,19 +387,28 @@ def ask_claude(text):
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=200,
-            system=build_prompt(text, relevant_memory),
+            system=build_prompt(
+                text,
+                relevant_memory
+            ),
             messages=history
         )
 
         reply = response.content[0].text
 
-        history.append({"role": "assistant", "content": reply})
+        print("🔥 CLAUDE SUCCESS:", reply)
 
-        # DAILY SUMMARY
+        history.append({
+            "role": "assistant",
+            "content": reply
+        })
+
+        # daily summary
         today = datetime.now().strftime("%Y-%m-%d")
+
         daily_summary[today] = generate_daily_summary(history)
 
-        # SAVE
+        # save
         save_json_gcs("memory.json", memory)
         save_json_gcs("life_log.json", life_log)
         save_json_gcs("chat_history.json", history)
@@ -337,19 +434,31 @@ def webhook():
 
         data = request.get_json()
 
+        print("📩 RAW DATA:", data)
+
         text = data["message"]["text"]
         chat_id = data["message"]["chat"]["id"]
 
+        print("📩 USER:", text)
+
         reply = ask_claude(text)
 
-        bot.send_message(chat_id=chat_id, text=reply)
+        print("🤖 FINAL:", reply)
+
+        bot.send_message(
+            chat_id=chat_id,
+            text=reply
+        )
 
         return "ok", 200
 
     except Exception:
 
+        print("🔥 WEBHOOK ERROR:")
         print(traceback.format_exc())
+
         return "ok", 200
+
 
 # =====================
 # PROACTIVE MESSAGE
@@ -361,34 +470,47 @@ def proactive():
 
         print("🔥 PROACTIVE TRIGGERED")
 
-        from datetime import datetime
-        import random
-
         now = datetime.now()
         hour = now.hour
 
         # 🌙 静默时间
         if hour < 8:
+
             print("😴 Silent hours")
+
             return "sleep", 200
 
         data = request.get_json(silent=True) or {}
 
-        chat_id = data.get("chat_id") or "8698960139"
+        # chat_id
+        chat_id = (
+            data.get("chat_id")
+            or os.environ.get("CHAT_ID")
+        )
 
-        # 🎲 只有40%概率发送
+        if not chat_id:
+
+            print("❌ CHAT_ID missing")
+
+            return "missing chat_id", 200
+
+        # 🎲 40%概率主动发消息
         if random.random() > 0.4:
+
             print("🤫 Skip proactive")
+
             return "skip", 200
 
-        # 最近聊天
+        # recent history
         recent_history = history[-10:]
 
         history_text = ""
 
         for msg in recent_history:
+
             role = msg.get("role", "")
             content = msg.get("content", "")
+
             history_text += f"{role}: {content}\n"
 
         prompt = f"""
@@ -435,6 +557,8 @@ def proactive():
             text=proactive_text
         )
 
+        print("✅ MESSAGE SENT")
+
         return "ok", 200
 
     except Exception:
@@ -442,50 +566,19 @@ def proactive():
         print("🔥 PROACTIVE ERROR")
         print(traceback.format_exc())
 
+        # 不让 Scheduler 认为失败
         return "handled", 200
+
+
 # =====================
 # HOME
 # =====================
 @app.route("/")
 def home():
+
     return "AI Life System Running", 200
 
 
-# 👇 把这一整段加在这里
-@app.route("/proactive", methods=["POST"])
-def proactive():
-
-    try:
-        from datetime import datetime
-
-        now = datetime.now()
-        hour = now.hour
-
-        # 🕛 静默时间：00:00 - 08:00
-        if hour < 8:
-            print("😴 Silent hours - skip proactive")
-            return "sleep", 200
-
-        data = request.get_json(silent=True) or {}
-        chat_id = data.get("chat_id") or "8698960139"
-
-        if not chat_id:
-            print("❌ missing chat_id")
-            return "no chat_id", 200
-
-        from proactive import run_proactive
-
-        run_proactive(chat_id)
-
-        return "ok", 200
-
-    except Exception as e:
-
-        print("🔥 PROACTIVE ERROR:")
-        print(traceback.format_exc())
-
-        # ⚠️ 不要让 Scheduler 认为是失败
-        return "handled error", 200
 # =====================
 # RUN
 # =====================
@@ -493,4 +586,7 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 8080))
 
-    app.run(host="0.0.0.0", port=port)
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
