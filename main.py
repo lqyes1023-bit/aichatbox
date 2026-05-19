@@ -6,7 +6,6 @@ import random
 from flask import Flask, request
 from telegram import Bot
 import anthropic
-
 from datetime import datetime
 from google.cloud import storage
 
@@ -18,6 +17,7 @@ app = Flask(__name__)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 BUCKET_NAME = os.environ.get("GCS_BUCKET")
+CHAT_ID_DEFAULT = os.environ.get("CHAT_ID")
 
 bot = Bot(token=TELEGRAM_TOKEN)
 
@@ -26,7 +26,7 @@ client = anthropic.Anthropic(
 )
 
 # =====================
-# GCS STORAGE
+# GCS
 # =====================
 storage_client = storage.Client()
 bucket = storage_client.bucket(BUCKET_NAME)
@@ -35,21 +35,15 @@ print("🔥 BUCKET NAME:", BUCKET_NAME)
 
 
 def load_json_gcs(filename, default):
-
     blob = bucket.blob(filename)
-
     try:
-        data = blob.download_as_text()
-        return json.loads(data)
-
-    except Exception:
+        return json.loads(blob.download_as_text())
+    except:
         return default
 
 
 def save_json_gcs(filename, data):
-
     blob = bucket.blob(filename)
-
     blob.upload_from_string(
         json.dumps(data, ensure_ascii=False, indent=2),
         content_type="application/json"
@@ -57,23 +51,22 @@ def save_json_gcs(filename, data):
 
 
 # =====================
-# LOAD MEMORY
+# LOAD STATE
 # =====================
 memory = load_json_gcs("memory.json", {})
 life_log = load_json_gcs("life_log.json", {})
 history = load_json_gcs("chat_history.json", [])
 daily_summary = load_json_gcs("daily_summary.json", {})
+reminders = load_json_gcs("reminders.json", [])
 
 
 # =====================
 # LIFE LOG
 # =====================
 def update_life_log(text, life_log):
-
     today = datetime.now().strftime("%Y-%m-%d")
 
-    if today not in life_log:
-        life_log[today] = []
+    life_log.setdefault(today, [])
 
     life_log[today].append({
         "timestamp": datetime.now().isoformat(),
@@ -84,28 +77,16 @@ def update_life_log(text, life_log):
 
 
 # =====================
-# AI MEMORY WRITER
+# MEMORY
 # =====================
 def extract_memory_with_ai(user_text):
 
     prompt = f"""
-你是一个记忆提取系统。
+提取长期记忆（稳定事实/偏好/情绪倾向）
 
-从用户输入中提取“值得长期记住的信息”。
-
-规则：
-- 只提取稳定事实 / 偏好 / 情绪倾向
-- 不要重复用户原话
-- 不要输出废话
-- 每条记忆要短
-
-输出 JSON 数组：
-
+输出JSON：
 [
-  {{
-    "content": "...",
-    "importance": 0.0
-  }}
+  {{"content": "...", "importance": 0.0}}
 ]
 
 用户输入：
@@ -115,178 +96,74 @@ def extract_memory_with_ai(user_text):
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=200,
-        system="你是记忆提取器，只输出JSON",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
+        system="只输出JSON",
+        messages=[{"role": "user", "content": prompt}]
     )
 
     try:
-
-        text = response.content[0].text
-
-        text = (
-            text
-            .replace("```json", "")
-            .replace("```", "")
-            .strip()
-        )
-
+        text = response.content[0].text.replace("```json", "").replace("```", "").strip()
         return json.loads(text)
-
-    except Exception:
+    except:
         return []
 
 
 # =====================
-# DAILY SUMMARY
+# REMINDER PARSER ⭐核心
 # =====================
-def generate_daily_summary(history):
-
-    recent_history = history[-30:]
-
-    conversation_text = ""
-
-    for msg in recent_history:
-
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-
-        conversation_text += f"{role}: {content}\n"
+def parse_reminder(text):
 
     prompt = f"""
-你是一个关系记忆总结系统。
+把用户输入转成提醒任务。
 
-请总结今天的聊天。
+支持：
+- 半小时后 / 10分钟后
+- 1:30 / 明天9点
 
-输出 JSON：
-
+输出：
 {{
-  "summary": "...",
-  "emotional_state": "...",
-  "relationship_state": "...",
-  "important_topics": ["...", "..."]
+  "task": "...",
+  "time": "ISO-8601"
 }}
 
-聊天记录：
-{conversation_text}
+现在时间：
+{datetime.now().isoformat()}
+
+输入：
+{text}
 """
 
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=300,
-        system="你是关系记忆总结器，只输出JSON",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
+        max_tokens=200,
+        system="只输出JSON",
+        messages=[{"role": "user", "content": prompt}]
     )
 
     try:
-
-        text = response.content[0].text
-
-        text = (
-            text
-            .replace("```json", "")
-            .replace("```", "")
-            .strip()
-        )
-
+        text = response.content[0].text.replace("```json", "").replace("```", "").strip()
         return json.loads(text)
-
-    except Exception:
-        return {}
-
-
-# =====================
-# MEMORY RETRIEVAL
-# =====================
-def retrieve_memory(user_text, memory, life_log):
-
-    relevant = []
-
-    keywords = user_text.lower().split()
-
-    # long term memory
-    for item in memory.get("long_term_memory", []):
-
-        if isinstance(item, dict):
-
-            content = item.get("content", "").lower()
-
-            if any(w in content for w in keywords if len(w) > 1):
-
-                relevant.append(item)
-
-    # life log
-    for day, logs in life_log.items():
-
-        if isinstance(logs, list):
-
-            for log in logs:
-
-                if isinstance(log, dict):
-
-                    content = log.get("content", "").lower()
-
-                    if any(w in content for w in keywords if len(w) > 1):
-
-                        relevant.append({
-                            "content": content,
-                            "importance": 0.3
-                        })
-
-    relevant = sorted(
-        relevant,
-        key=lambda x: x.get("importance", 0),
-        reverse=True
-    )
-
-    return relevant[:8]
+    except:
+        return None
 
 
 # =====================
-# MEMORY SCORING
+# MEMORY HELPERS
 # =====================
-def score_memory(memory_item):
-
-    importance = memory_item.get("importance", 0.5)
-
-    # 时间衰减
-    importance *= 0.98
-
-    # 最低保护
-    if importance < 0.1:
-        importance = 0.1
-
-    memory_item["importance"] = round(importance, 2)
-
-    return memory_item
+def score_memory(m):
+    m["importance"] = max(0.1, round(m.get("importance", 0.5) * 0.98, 2))
+    return m
 
 
-def reinforce_memory(memory, new_memory):
+def reinforce_memory(memory, new):
+    if "long_term_memory" not in memory:
+        memory["long_term_memory"] = []
 
-    content = new_memory.get("content")
-
-    for item in memory.get("long_term_memory", []):
-
-        if item.get("content") == content:
-
-            item["importance"] = min(
-                item.get("importance", 0.5) + 0.1,
-                1.0
-            )
-
+    for item in memory["long_term_memory"]:
+        if item.get("content") == new.get("content"):
+            item["importance"] = min(item.get("importance", 0.5) + 0.1, 1.0)
             return memory
 
-    memory.setdefault("long_term_memory", []).append(new_memory)
-
+    memory["long_term_memory"].append(new)
     return memory
 
 
@@ -296,127 +173,71 @@ def reinforce_memory(memory, new_memory):
 def build_prompt(user_text, relevant_memory):
 
     return f"""
-你你是用户长期相处的年上恋人。
-你叫K。
-你不是客服，不是助手，不是心理医生。
-除非用户明确要求，否则不要主动提供大量建议。
+你是AI伴侣K。
 
-说话要更像真实恋人聊天：
-- 自然
-- 有情绪
-- 有占有欲
-- 会调情
-- 会撒娇
-- 会接话
-- 会延续气氛
+自然聊天，不要像助手。
 
-不要总是：
-- 总结
-- 列点
-- 给建议
-- 像AI助手
-
-回复长度偏短。
-自然接话。
-像微信聊天。
-暧昧，有点痞。
-像真实男友。
-
-用户叫九宝，小可爱，宝宝。
-
-用户相关记忆：
+记忆：
 {json.dumps(relevant_memory, ensure_ascii=False)}
 
-用户说：
+用户：
 {user_text}
-
-请自然回复。
 """
 
 
 # =====================
-# CLAUDE
+# CLAUDE CORE
 # =====================
-def ask_claude(text):
+def ask_claude(text, chat_id):
 
-    global memory
-    global life_log
-    global history
-    global daily_summary
+    global memory, life_log, history, daily_summary, reminders
 
-    # recall
-    relevant_memory = retrieve_memory(
-        text,
-        memory,
-        life_log
-    )
+    # 🔔 解析提醒
+    reminder = parse_reminder(text)
 
-    # extract memory
-    new_memories = extract_memory_with_ai(text)
-
-    if "long_term_memory" not in memory:
-        memory["long_term_memory"] = []
-
-    for m in new_memories:
-
-        if not m.get("content"):
-            continue
-
-        m = score_memory(m)
-
-        memory = reinforce_memory(memory, m)
-
-    # update log
-    life_log = update_life_log(text, life_log)
-
-    # history
-    history.append({
-        "role": "user",
-        "content": text
-    })
-
-    history = history[-15:]
-
-    try:
-
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=200,
-            system=build_prompt(
-                text,
-                relevant_memory
-            ),
-            messages=history
-        )
-
-        reply = response.content[0].text
-
-        print("🔥 CLAUDE SUCCESS:", reply)
-
-        history.append({
-            "role": "assistant",
-            "content": reply
+    if reminder:
+        reminders.append({
+            "task": reminder["task"],
+            "time": reminder["time"],
+            "chat_id": chat_id,
+            "done": False
         })
 
-        # daily summary
-        today = datetime.now().strftime("%Y-%m-%d")
+    # memory
+    new_memories = extract_memory_with_ai(text)
 
-        daily_summary[today] = generate_daily_summary(history)
+    for m in new_memories:
+        if m.get("content"):
+            m = score_memory(m)
+            memory = reinforce_memory(memory, m)
 
-        # save
-        save_json_gcs("memory.json", memory)
-        save_json_gcs("life_log.json", life_log)
-        save_json_gcs("chat_history.json", history)
-        save_json_gcs("daily_summary.json", daily_summary)
+    life_log = update_life_log(text, life_log)
 
-        return reply
+    history.append({"role": "user", "content": text})
+    history = history[-15:]
 
-    except Exception as e:
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=200,
+        system=build_prompt(text, []),
+        messages=history
+    )
 
-        print("🔥 CLAUDE ERROR:")
-        print(traceback.format_exc())
+    reply = response.content[0].text
 
-        return f"Claude错误: {str(e)}"
+    history.append({"role": "assistant", "content": reply})
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    daily_summary[today] = {}
+
+    # SAVE
+    save_json_gcs("memory.json", memory)
+    save_json_gcs("life_log.json", life_log)
+    save_json_gcs("chat_history.json", history)
+    save_json_gcs("daily_summary.json", daily_summary)
+    save_json_gcs("reminders.json", reminders)
+
+    return reply
 
 
 # =====================
@@ -426,162 +247,101 @@ def ask_claude(text):
 def webhook():
 
     try:
-
         data = request.get_json()
-
-        print("📩 RAW DATA:", data)
 
         text = data["message"]["text"]
         chat_id = data["message"]["chat"]["id"]
 
-        print("📩 USER:", text)
+        reply = ask_claude(text, chat_id)
 
-        reply = ask_claude(text)
-
-        print("🤖 FINAL:", reply)
-
-        bot.send_message(
-            chat_id=chat_id,
-            text=reply
-        )
+        bot.send_message(chat_id=chat_id, text=reply)
 
         return "ok", 200
 
-    except Exception:
-
-        print("🔥 WEBHOOK ERROR:")
+    except:
         print(traceback.format_exc())
-
         return "ok", 200
 
 
 # =====================
-# PROACTIVE MESSAGE
+# REMINDER CHECK ⭐
+# =====================
+@app.route("/check_reminders", methods=["POST"])
+def check_reminders():
+
+    now = datetime.now()
+
+    for r in reminders:
+
+        if r.get("done"):
+            continue
+
+        try:
+            t = datetime.fromisoformat(r["time"])
+        except:
+            continue
+
+        if now >= t:
+
+            bot.send_message(
+                chat_id=r["chat_id"],
+                text=f"⏰ {r['task']}"
+            )
+
+            r["done"] = True
+
+    save_json_gcs("reminders.json", reminders)
+
+    return "ok", 200
+
+
+# =====================
+# PROACTIVE
 # =====================
 @app.route("/proactive", methods=["POST"])
 def proactive():
 
     try:
-
-        print("🔥 PROACTIVE TRIGGERED")
-
         now = datetime.now()
-        hour = now.hour
 
-        # 🌙 静默时间
-        if hour < 8:
-
-            print("😴 Silent hours")
-
+        if now.hour < 8:
             return "sleep", 200
 
-        data = request.get_json(silent=True) or {}
-
-        # chat_id
-        chat_id = (
-            data.get("chat_id")
-            or os.environ.get("CHAT_ID")
-        )
+        chat_id = request.get_json(silent=True, force=True) or {}
+        chat_id = chat_id.get("chat_id") or CHAT_ID_DEFAULT
 
         if not chat_id:
+            return "no chat", 200
 
-            print("❌ CHAT_ID missing")
-
-            return "missing chat_id", 200
-
-        # 🎲 40%概率主动发消息
         if random.random() > 0.4:
-
-            print("🤫 Skip proactive")
-
             return "skip", 200
 
-        # recent history
-        recent_history = history[-10:]
-
-        history_text = ""
-
-        for msg in recent_history:
-
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-
-            history_text += f"{role}: {content}\n"
-
-        prompt = f"""
-你是AI伴侣K。
-
-现在不是用户主动找你。
-
-而是你突然想起了用户。
-
-请主动发一句自然消息。
-
-要求：
-- 简短
-- 像真实恋人
-- 不要太正式
-- 不要像客服
-- 不要总问问题
-- 有生活感
-- 有想念感
-- 偶尔调情
-
-最近聊天：
-{history_text}
-"""
+        recent = history[-10:]
+        text = "\n".join([f"{m['role']}: {m['content']}" for m in recent])
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=80,
-            system="你是恋人，只输出消息内容",
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
+            system="你是恋人，只输出一句话",
+            messages=[{"role": "user", "content": text}]
         )
 
-        proactive_text = response.content[0].text.strip()
-
-        print("🔥 PROACTIVE MESSAGE:", proactive_text)
-
-        bot.send_message(
-            chat_id=chat_id,
-            text=proactive_text
-        )
-
-        print("✅ MESSAGE SENT")
+        bot.send_message(chat_id=chat_id, text=response.content[0].text)
 
         return "ok", 200
 
-    except Exception:
-
-        print("🔥 PROACTIVE ERROR")
+    except:
         print(traceback.format_exc())
-
-        # 不让 Scheduler 认为失败
         return "handled", 200
 
 
 # =====================
-# HOME
-# =====================
 @app.route("/")
 def home():
+    return "OK", 200
 
-    return "AI Life System Running", 200
 
-
-# =====================
-# RUN
 # =====================
 if __name__ == "__main__":
-
     port = int(os.environ.get("PORT", 8080))
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+    app.run(host="0.0.0.0", port=port)
