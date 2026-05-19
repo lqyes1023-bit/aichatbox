@@ -365,7 +365,6 @@ def home():
 def proactive():
 
     try:
-
         from datetime import datetime
 
         now = datetime.now()
@@ -376,7 +375,12 @@ def proactive():
             print("😴 Silent hours - skip proactive")
             return "sleep", 200
 
-        chat_id = request.json.get("chat_id")
+        data = request.get_json(silent=True) or {}
+        chat_id = data.get("chat_id") or "8698960139"
+
+        if not chat_id:
+            print("❌ missing chat_id")
+            return "no chat_id", 200
 
         from proactive import run_proactive
 
@@ -386,9 +390,11 @@ def proactive():
 
     except Exception as e:
 
+        print("🔥 PROACTIVE ERROR:")
         print(traceback.format_exc())
-        return "error", 500
 
+        # ⚠️ 不要让 Scheduler 认为是失败
+        return "handled error", 200
 # =====================
 # RUN
 # =====================
