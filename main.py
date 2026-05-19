@@ -269,31 +269,44 @@ def webhook():
 @app.route("/check_reminders", methods=["POST"])
 def check_reminders():
 
-    now = datetime.now()
+    try:
+        now = datetime.now()
 
-    for r in reminders:
+        print("🔥 CHECK REMINDERS RUNNING:", now)
 
-        if r.get("done"):
-            continue
+        changed = False
 
-        try:
-            t = datetime.fromisoformat(r["time"])
-        except:
-            continue
+        for r in reminders:
 
-        if now >= t:
+            if r.get("done"):
+                continue
 
-            bot.send_message(
-                chat_id=r["chat_id"],
-                text=f"⏰ {r['task']}"
-            )
+            try:
+                remind_time = datetime.fromisoformat(r["time"])
+            except Exception:
+                print("❌ BAD TIME FORMAT:", r["time"])
+                continue
 
-            r["done"] = True
+            if now >= remind_time:
 
-    save_json_gcs("reminders.json", reminders)
+                print("⏰ TRIGGER:", r["task"])
 
-    return "ok", 200
+                bot.send_message(
+                    chat_id=r["chat_id"],
+                    text=f"⏰ 该做了：{r['task']}"
+                )
 
+                r["done"] = True
+                changed = True
+
+        if changed:
+            save_json_gcs("reminders.json", reminders)
+
+        return "ok", 200
+
+    except Exception:
+        print(traceback.format_exc())
+        return "error", 200
 
 # =====================
 # PROACTIVE
