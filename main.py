@@ -361,24 +361,88 @@ def proactive():
 
         print("🔥 PROACTIVE TRIGGERED")
 
+        from datetime import datetime
+        import random
+
+        now = datetime.now()
+        hour = now.hour
+
+        # 🌙 静默时间
+        if hour < 8:
+            print("😴 Silent hours")
+            return "sleep", 200
+
         data = request.get_json(silent=True) or {}
 
         chat_id = data.get("chat_id") or "8698960139"
 
-        bot.send_message(
-            chat_id=chat_id,
-            text="宝宝，我刚刚突然想你了。"
+        # 🎲 只有40%概率发送
+        if random.random() > 0.4:
+            print("🤫 Skip proactive")
+            return "skip", 200
+
+        # 最近聊天
+        recent_history = history[-10:]
+
+        history_text = ""
+
+        for msg in recent_history:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            history_text += f"{role}: {content}\n"
+
+        prompt = f"""
+你是AI伴侣K。
+
+现在不是用户主动找你。
+
+而是你突然想起了用户。
+
+请主动发一句自然消息。
+
+要求：
+- 简短
+- 像真实恋人
+- 不要太正式
+- 不要像客服
+- 不要总问问题
+- 有生活感
+- 有想念感
+- 偶尔调情
+
+最近聊天：
+{history_text}
+"""
+
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=80,
+            system="你是恋人，只输出消息内容",
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
         )
 
-        print("🔥 MESSAGE SENT")
+        proactive_text = response.content[0].text.strip()
+
+        print("🔥 PROACTIVE MESSAGE:", proactive_text)
+
+        bot.send_message(
+            chat_id=chat_id,
+            text=proactive_text
+        )
 
         return "ok", 200
 
     except Exception:
 
+        print("🔥 PROACTIVE ERROR")
         print(traceback.format_exc())
 
-        return "error", 500
+        return "handled", 200
 # =====================
 # HOME
 # =====================
