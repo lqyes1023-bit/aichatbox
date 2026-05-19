@@ -192,53 +192,95 @@ def ask_claude(text, chat_id):
 
     global memory, life_log, history, daily_summary, reminders
 
-    # 🔔 解析提醒
-    reminder = parse_reminder(text)
+    try:
+        # =====================
+        # 🔔 1. 提醒解析（副作用，不影响聊天）
+        # =====================
+        reminder = parse_reminder(text)
 
-    if reminder:
-        reminders.append({
-            "task": reminder["task"],
-            "time": reminder["time"],
-            "chat_id": chat_id,
-            "done": False
-        })
+        if reminder:
 
-    # memory
-    new_memories = extract_memory_with_ai(text)
+            reminders.append({
+                "task": reminder["task"],
+                "time": reminder["time"],   # 必须是 ISO 格式
+                "chat_id": chat_id,
+                "done": False
+            })
 
-    for m in new_memories:
-        if m.get("content"):
+            print("⏰ Reminder saved:", reminder)
+
+        # =====================
+        # 🧠 2. memory extraction
+        # =====================
+        new_memories = extract_memory_with_ai(text)
+
+        if "long_term_memory" not in memory:
+            memory["long_term_memory"] = []
+
+        for m in new_memories:
+
+            if not m.get("content"):
+                continue
+
             m = score_memory(m)
             memory = reinforce_memory(memory, m)
 
-    life_log = update_life_log(text, life_log)
+        # =====================
+        # 📒 3. life log
+        # =====================
+        life_log = update_life_log(text, life_log)
 
-    history.append({"role": "user", "content": text})
-    history = history[-15:]
+        # =====================
+        # 💬 4. history
+        # =====================
+        history.append({
+            "role": "user",
+            "content": text
+        })
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=200,
-        system=build_prompt(text, []),
-        messages=history
-    )
+        history = history[-15:]
 
-    reply = response.content[0].text
+        # =====================
+        # 🤖 5. Claude reply
+        # =====================
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            system=build_prompt(text, []),
+            messages=history
+        )
 
-    history.append({"role": "assistant", "content": reply})
+        reply = response.content[0].text
 
-    today = datetime.now().strftime("%Y-%m-%d")
-    daily_summary[today] = {}
+        history.append({
+            "role": "assistant",
+            "content": reply
+        })
 
-    # SAVE
-    save_json_gcs("memory.json", memory)
-    save_json_gcs("life_log.json", life_log)
-    save_json_gcs("chat_history.json", history)
-    save_json_gcs("daily_summary.json", daily_summary)
-    save_json_gcs("reminders.json", reminders)
+        # =====================
+        # 📅 6. daily summary
+        # =====================
+        today = datetime.now().strftime("%Y-%m-%d")
 
-    return reply
+        daily_summary[today] = generate_daily_summary(history)
 
+        # =====================
+        # 💾 7. SAVE ALL
+        # =====================
+        save_json_gcs("memory.json", memory)
+        save_json_gcs("life_log.json", life_log)
+        save_json_gcs("chat_history.json", history)
+        save_json_gcs("daily_summary.json", daily_summary)
+        save_json_gcs("reminders.json", reminders)
+
+        return reply
+
+    except Exception as e:
+
+        print("🔥 ask_claude ERROR:")
+        print(traceback.format_exc())
+
+        return "我刚刚有点卡住了，再说一次好吗？"
 
 # =====================
 # WEBHOOK
