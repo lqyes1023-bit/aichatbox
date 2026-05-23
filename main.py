@@ -728,9 +728,10 @@ def webhook():
 @app.route("/check_reminders", methods=["POST"])
 def check_reminders():
     try:
+        current_reminders = load_json_gcs("reminders.json", [])
         now = datetime.now()
         changed = False
-        for r in reminders:
+        for r in current_reminders:
             if r.get("done"):
                 continue
             try:
@@ -742,7 +743,7 @@ def check_reminders():
                 r["done"] = True
                 changed = True
         if changed:
-            save_json_gcs("reminders.json", reminders)
+            save_json_gcs("reminders.json", current_reminders)
         return "ok", 200
     except Exception:
         print(traceback.format_exc())
