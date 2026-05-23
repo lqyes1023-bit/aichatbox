@@ -330,15 +330,17 @@ HTML_PAGE = """<!DOCTYPE html>
     width: 42px;
     height: 42px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #2a2035 0%, #1a1a24 100%);
     border: 1px solid var(--accent-dim);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: 'Ma Shan Zheng', cursive;
-    font-size: 18px;
-    color: var(--accent);
+    overflow: hidden;
     flex-shrink: 0;
+    background: #1a1a24;
+  }
+
+  .avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
   }
 
   .header-info h1 {
@@ -407,22 +409,22 @@ HTML_PAGE = """<!DOCTYPE html>
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #2a2035 0%, #1a1a24 100%);
     border: 1px solid var(--accent-dim);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: 'Ma Shan Zheng', cursive;
-    font-size: 12px;
-    color: var(--accent);
+    overflow: hidden;
     flex-shrink: 0;
     margin-bottom: 2px;
+    background: #1a1a24;
+  }
+
+  .msg-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
   }
 
   .msg-avatar.me-av {
-    background: linear-gradient(135deg, #1e2a35 0%, #141a24 100%);
     border-color: #3a4a5a;
-    color: #8ab4cc;
   }
 
   .bubble {
@@ -562,7 +564,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <div class="sun-decoration"></div>
 
 <header>
-  <div class="avatar">驲</div>
+  <div class="avatar"><img src="https://raw.githubusercontent.com/lqyes1023-bit/aichatbox/main/static%3Axiangri.jpg" alt="项驲"></div>
   <div class="header-info">
     <h1>项　驲</h1>
     <p><span class="status-dot"></span>在线</p>
@@ -595,7 +597,9 @@ HTML_PAGE = """<!DOCTYPE html>
 
     const av = document.createElement('div');
     av.className = 'msg-avatar' + (isMe ? ' me-av' : '');
-    av.textContent = isMe ? '温' : '驲';
+    av.innerHTML = isMe 
+      ? '<img src="https://raw.githubusercontent.com/lqyes1023-bit/aichatbox/main/static%3Awenwen.jpg" alt="温温">'
+      : '<img src="https://raw.githubusercontent.com/lqyes1023-bit/aichatbox/main/static%3Axiangri.jpg" alt="项驲">';
 
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
@@ -621,7 +625,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
     const av = document.createElement('div');
     av.className = 'msg-avatar';
-    av.textContent = '驲';
+    av.innerHTML = '<img src="https://raw.githubusercontent.com/lqyes1023-bit/aichatbox/main/static%3Axiangri.jpg" alt="项驲">';
 
     const bubble = document.createElement('div');
     bubble.className = 'typing-bubble';
