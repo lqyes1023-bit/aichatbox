@@ -120,6 +120,7 @@ def extract_memory_with_ai(user_text):
 """
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
+
         max_tokens=200,
         system="你是记忆提取器，只输出JSON",
         messages=[{"role": "user", "content": prompt}]
