@@ -136,7 +136,7 @@ def extract_memory_with_ai(user_text):
 # DAILY SUMMARY
 # =====================
 def generate_daily_summary(history):
-    recent_history = history[-30:]
+    recent_history = history[-20:]
     conversation_text = ""
     for msg in recent_history:
         role = msg.get("role", "")
@@ -150,7 +150,7 @@ def generate_daily_summary(history):
 """
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=300,
+        max_tokens=250,
         system="你是关系记忆总结器，只输出JSON",
         messages=[{"role": "user", "content": prompt}]
     )
@@ -276,8 +276,8 @@ def ask_claude(text, chat_id):
         history = history[-15:]
 
         response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=300,
+          model="claude-haiku-4-5-20251001",
+            max_tokens=250,
             system=build_prompt(text, relevant_memory),
             messages=history
         )
