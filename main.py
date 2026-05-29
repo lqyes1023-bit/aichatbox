@@ -339,50 +339,6 @@ def check_reminders():
         print(traceback.format_exc())
         return "error", 200
 
-@app.route("/proactive", methods=["POST"])
-def proactive():
-    try:
-        now = datetime.now()
-        if now.hour < 8:
-            return "sleep", 200
-
-        data = request.get_json(silent=True) or {}
-        chat_id = data.get("chat_id") or CHAT_ID_DEFAULT
-        if not chat_id:
-            return "missing chat_id", 200
-
-        if random.random() > 0.4:
-            return "skip", 200
-
-        recent_history = history[-10:]
-        history_text = ""
-        for msg in recent_history:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            history_text += f"{role}: {content}\n"
-
-        prompt = XIANGRI_SYSTEM + f"""
-
-最近聊天：
-{history_text}
-
-请主动发一句关心温温的话，简短自然。"""
-
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=100,
-            system="你是恋人，只输出消息内容",
-            messages=[{"role": "user", "content": prompt}]
-        )
-
-        proactive_text = response.content[0].text.strip()
-        bot.send_message(chat_id=chat_id, text=proactive_text)
-        return "ok", 200
-
-    except Exception:
-        print(traceback.format_exc())
-        return "handled", 200
-
 @app.route("/")
 def home():
     return "项驲在线", 200
