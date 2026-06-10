@@ -146,7 +146,7 @@ def extract_memory_with_ai(user_text):
     try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=120,
+            max_tokens=250,
             system="你是记忆提取器，只输出纯JSON",
             messages=[{"role": "user", "content": prompt}]
         )
@@ -270,7 +270,7 @@ def ask_claude(text):
         # ===== MAIN RESPONSE =====
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=250,
+            max_tokens=300,
             system=build_system_prompt(relevant_memory),
             messages=history
         )
